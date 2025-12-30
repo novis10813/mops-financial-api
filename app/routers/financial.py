@@ -123,3 +123,122 @@ async def get_cash_flow(
         return statement
     except FinancialServiceError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{stock_id}/simplified/{statement_type}",
+    summary="取得 FinMind 格式財報",
+    description="返回 FinMind 風格的扁平化財報格式"
+)
+async def get_simplified_statement(
+    stock_id: str,
+    statement_type: str,
+    year: int = Query(..., description="民國年"),
+    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4，不填則取年報"),
+):
+    """
+    取得 FinMind 風格的扁平化財報
+    
+    格式與 FinMind API 相同：
+    ```json
+    {
+      "items": [
+        {
+          "date": "2024-09-30",
+          "stock_id": "2330",
+          "type": "CostOfGoodsSold",
+          "value": 128352000000,
+          "origin_name": "營業成本"
+        }
+      ]
+    }
+    ```
+    
+    返回所有財報科目，type 為 XBRL concept name
+    """
+    from app.schemas.simplified import (
+        SimplifiedFinancialStatement,
+        SimplifiedFinancialItem,
+    )
+    from app.services.mops_client import get_mops_client, MOPSClientError
+    from app.services.xbrl_parser import get_xbrl_parser
+    from decimal import Decimal, InvalidOperation
+    
+    # Validate statement type
+    valid_types = ["income_statement", "balance_sheet", "cash_flow"]
+    if statement_type not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid statement_type. Must be one of: {', '.join(valid_types)}"
+        )
+    
+    try:
+        # Download XBRL directly
+        client = get_mops_client()
+        q = quarter or 4
+        content = await client.download_xbrl(stock_id, year, q)
+        
+        # Parse XBRL
+        parser = get_xbrl_parser()
+        package = parser.parse(content, stock_id, year, q)
+        
+        # Calculate report date (西元年)
+        western_year = year + 1911
+        quarter_month = {1: "03", 2: "06", 3: "09", 4: "12"}
+        quarter_day = {1: "31", 2: "30", 3: "30", 4: "31"}
+        report_date = f"{western_year}-{quarter_month[q]}-{quarter_day[q]}"
+        
+        # Convert facts to FinMind format
+        simplified_items = []
+        seen_types = set()
+        
+        for fact in package.facts:
+            concept = fact.concept
+            if concept in seen_types:
+                continue
+            
+            # Skip if no value
+            if fact.value is None:
+                continue
+            
+            # Convert value to float
+            try:
+                value_str = str(fact.value).replace(",", "").strip()
+                if value_str and value_str not in ("-", ""):
+                    value_float = float(Decimal(value_str))
+                else:
+                    continue
+            except (InvalidOperation, ValueError):
+                continue
+            
+            seen_types.add(concept)
+            
+            # Get Chinese label
+            origin_name = package.labels.get(concept, concept)
+            
+            simplified_items.append(
+                SimplifiedFinancialItem(
+                    date=report_date,
+                    stock_id=stock_id,
+                    type=concept,
+                    value=value_float,
+                    origin_name=origin_name
+                )
+            )
+        
+        return SimplifiedFinancialStatement(
+            stock_id=stock_id,
+            year=year,
+            quarter=q,
+            report_date=report_date,
+            statement_type=statement_type,
+            items=simplified_items
+        )
+        
+    except MOPSClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse XBRL: {str(e)}")
+
+
+

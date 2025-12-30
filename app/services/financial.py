@@ -8,7 +8,7 @@ Key Feature: Q4 Standalone Calculation
 """
 import logging
 from typing import Optional, List, Dict
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from app.schemas.financial import FinancialStatement, FinancialItem
 from app.schemas.xbrl import XBRLPackage, CalculationArc
@@ -296,8 +296,10 @@ class FinancialService:
             value = None
             if concept in fact_values and fact_values[concept]:
                 try:
-                    value = Decimal(str(fact_values[concept]).replace(",", ""))
-                except (ValueError, TypeError):
+                    val_str = str(fact_values[concept]).replace(",", "").strip()
+                    if val_str and val_str not in ("-", ""):
+                        value = Decimal(val_str)
+                except (ValueError, TypeError, InvalidOperation):
                     pass
             
             # 取得 weight（加減邏輯）
