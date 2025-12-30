@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "arelle-release>=2.0.0",
+    "matplotlib>=3.10.8",
 ]
 
 [project.optional-dependencies]

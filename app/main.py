@@ -4,7 +4,7 @@ MOPS Financial API - FastAPI Application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import financial, xbrl
+from app.routers import financial, xbrl, analysis
 
 app = FastAPI(
     title="MOPS Financial API",
@@ -24,6 +24,7 @@ app.add_middleware(
 # Include routers
 app.include_router(financial.router, prefix="/api/v1/financial", tags=["financial"])
 app.include_router(xbrl.router, prefix="/api/v1/xbrl", tags=["xbrl"])
+app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["analysis"])
 
 
 @app.get("/")
