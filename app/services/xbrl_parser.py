@@ -125,7 +125,14 @@ class XBRLParser:
             quarter=quarter,
         )
         
-        # 使用 lxml 解析 iXBRL HTML
+        # 1. 優先嘗試 Arelle (支援從 schemaRef 取得 linkbase)
+        if self._arelle_available:
+            try:
+                return self._parse_ixbrl_with_arelle(ixbrl_content, package)
+            except Exception as e:
+                logger.warning(f"Arelle parsing failed for iXBRL, falling back to lxml: {e}")
+        
+        # 2. 降級使用 lxml (僅提取 facts/contexts，無 hierarchy/calculation)
         try:
             # 解析 HTML (使用 HTML parser 而非 XML parser)
             parser = etree.HTMLParser(encoding='utf-8')
@@ -135,6 +142,8 @@ class XBRLParser:
             # 定義 iXBRL 命名空間
             ix_ns = "http://www.xbrl.org/2013/inlineXBRL"
             xbrli_ns = "http://www.xbrl.org/2003/instance"
+            
+            # ... (原有 lxml 邏輯保持不變) ...
             
             # 1. 提取數值型 Facts (ix:nonFraction)
             # 注意: HTML parser 會將標籤和屬性轉為小寫
@@ -183,7 +192,7 @@ class XBRLParser:
                     ))
             
             package.facts = facts
-            logger.info(f"Parsed {len(facts)} facts from iXBRL")
+            logger.info(f"Parsed {len(facts)} facts from iXBRL with lxml")
             
             # 2. 提取 Contexts (在 ix:header > ix:resources 中)
             contexts = {}
@@ -221,20 +230,53 @@ class XBRLParser:
                     )
             
             package.contexts = contexts
-            logger.info(f"Parsed {len(contexts)} contexts from iXBRL")
-            
-            # 3. 嘗試從外部 taxonomy 取得 Calculation/Presentation (如果有 schemaRef)
-            # iXBRL 檔案通常透過 schemaRef 連結到外部 taxonomy
-            for ref_elem in root.iter():
-                if 'schemaRef' in str(ref_elem.tag):
-                    schema_href = ref_elem.get("{http://www.w3.org/1999/xlink}href", "")
-                    logger.info(f"Found schemaRef: {schema_href}")
-                    # TODO: 可以從這個 URL 下載 taxonomy 並解析 calculation linkbase
-                    break
+            logger.info(f"Parsed {len(contexts)} contexts from iXBRL with lxml")
             
         except Exception as e:
-            logger.error(f"Error parsing iXBRL: {e}")
+            logger.error(f"Error parsing iXBRL with lxml: {e}")
             raise XBRLParserError(f"Failed to parse iXBRL: {e}")
+        
+        return package
+
+    def _parse_ixbrl_with_arelle(self, content: bytes, package: XBRLPackage) -> XBRLPackage:
+        """
+        使用 Arelle 解析 iXBRL
+        只需將內容寫入暫存檔，Arelle 會自動處理
+        """
+        from arelle import Cntlr, ModelManager, FileSource
+        
+        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        try:
+            cntlr = Cntlr.Cntlr(logFileName="logToPrint")
+            model_manager = ModelManager.initialize(cntlr)
+            
+            try:
+                # 載入 iXBRL 文件
+                model_xbrl = model_manager.load(
+                    FileSource.FileSource(tmp_path)
+                )
+                
+                if model_xbrl is None:
+                    raise XBRLParserError("Failed to load iXBRL document with Arelle")
+                
+                # Arelle 會自動解析引用的 schemaRef，所以 Linkbase 應該都在
+                package.calculation_arcs = self._extract_calculation_arcs_arelle(model_xbrl)
+                package.presentation_arcs = self._extract_presentation_arcs_arelle(model_xbrl)
+                package.facts = self._extract_facts_arelle(model_xbrl)
+                package.contexts = self._extract_contexts_arelle(model_xbrl)
+                package.labels, package.labels_en = self._extract_labels_arelle(model_xbrl)
+                
+                model_xbrl.close()
+                logger.info(f"Successfully parsed iXBRL with Arelle: {len(package.facts)} facts, {len(package.presentation_arcs)} presentation concepts")
+                
+            finally:
+                cntlr.close()
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
         
         return package
     

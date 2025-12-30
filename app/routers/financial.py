@@ -1,6 +1,15 @@
 """
 Financial API Router
 Provides endpoints for retrieving financial statements
+
+Parameter Logic:
+- year + quarter: Get specific quarter data
+- year only (no quarter): Get annual report (Q4 raw data)
+- quarter=4: For income statement, calculates Q4 standalone = Annual - Q3
+
+Example:
+- GET /2330/income-statement?year=113&quarter=4 → Q4 single quarter
+- GET /2330/income-statement?year=113 → Full year (annual report)
 """
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -15,30 +24,21 @@ router = APIRouter()
     "/{stock_id}/balance-sheet",
     response_model=FinancialStatement,
     summary="取得資產負債表",
-    description="取得指定公司的資產負債表，包含完整階層結構與加減邏輯"
+    description="取得指定公司的資產負債表（時點快照）"
 )
 async def get_balance_sheet(
     stock_id: str,
-    year: Optional[int] = Query(None, description="民國年（預設：最近一期）"),
-    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4（預設：最近一期）"),
+    year: int = Query(..., description="民國年（必填）"),
+    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4，不填則取年報"),
     format: str = Query("tree", description="輸出格式: tree (階層) 或 flat (扁平)"),
 ):
     """
     取得資產負債表 (Statement of Financial Position)
     
-    回傳的 FinancialItem 包含：
-    - weight: 1.0 表示加項，-1.0 表示減項
-    - level: 階層深度，可用於重建縮排
-    - children: 子項目列表
+    - 資產負債表是「時點快照」，每季獨立，無累計問題
+    - quarter=None: 取得年報（Q4 時點）
+    - quarter=1~4: 取得該季末時點的資產負債表
     """
-    # 若未指定年季，使用最近一期
-    if year is None or quarter is None:
-        # TODO: 實作自動偵測最新期別
-        raise HTTPException(
-            status_code=400, 
-            detail="Year and quarter are required. Auto-detection not yet implemented."
-        )
-    
     service = get_financial_service()
     
     try:
@@ -58,21 +58,24 @@ async def get_balance_sheet(
     "/{stock_id}/income-statement",
     response_model=FinancialStatement,
     summary="取得綜合損益表",
-    description="取得指定公司的綜合損益表"
+    description="取得指定公司的綜合損益表（累計型，Q4 會自動計算單季）"
 )
 async def get_income_statement(
     stock_id: str,
-    year: Optional[int] = Query(None, description="民國年"),
-    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4"),
+    year: int = Query(..., description="民國年（必填）"),
+    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4，不填則取年報"),
     format: str = Query("tree", description="輸出格式: tree 或 flat"),
 ):
-    """取得綜合損益表 (Statement of Comprehensive Income)"""
-    if year is None or quarter is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Year and quarter are required."
-        )
+    """
+    取得綜合損益表 (Statement of Comprehensive Income)
     
+    - 損益表是「累計型」報表
+    - quarter=None: 取得年報原始資料（全年累計）
+    - quarter=1~3: 取得該季報表（Q2, Q3 為累計）
+    - quarter=4: **自動計算 Q4 單季** = 年報 - Q3 累計
+    
+    注意：回傳的 is_standalone=True 表示已計算為單季資料
+    """
     service = get_financial_service()
     
     try:
@@ -96,17 +99,17 @@ async def get_income_statement(
 )
 async def get_cash_flow(
     stock_id: str,
-    year: Optional[int] = Query(None, description="民國年"),
-    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4"),
+    year: int = Query(..., description="民國年（必填）"),
+    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4，不填則取年報"),
     format: str = Query("tree", description="輸出格式: tree 或 flat"),
 ):
-    """取得現金流量表 (Statement of Cash Flows)"""
-    if year is None or quarter is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Year and quarter are required."
-        )
+    """
+    取得現金流量表 (Statement of Cash Flows)
     
+    - 現金流量表為期間報表
+    - quarter=None: 取得年報
+    - quarter=1~4: 取得該季報表
+    """
     service = get_financial_service()
     
     try:
