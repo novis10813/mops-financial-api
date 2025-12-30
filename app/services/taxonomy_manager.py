@@ -87,6 +87,10 @@ class TaxonomyManager:
             zip_path = self.taxonomy_dir / taxonomy.filename
             extract_dir = self.taxonomy_dir / taxonomy.filename.replace('.zip', '')
             
+            # Skip if already extracted
+            if extract_dir.exists():
+                continue
+            
             # Download if ZIP doesn't exist
             if not zip_path.exists():
                 logger.info(f"Downloading taxonomy: {taxonomy.filename}")
@@ -94,9 +98,13 @@ class TaxonomyManager:
                 downloaded.append(taxonomy.filename)
             
             # Extract if directory doesn't exist
-            if not extract_dir.exists() and zip_path.exists():
+            if zip_path.exists():
                 logger.info(f"Extracting taxonomy: {taxonomy.filename}")
                 self._extract_taxonomy(zip_path, extract_dir)
+                
+                # Delete ZIP after extraction to save disk space
+                zip_path.unlink()
+                logger.info(f"Deleted ZIP file: {taxonomy.filename}")
         
         # Generate schema mappings
         self._generate_schema_mappings()
