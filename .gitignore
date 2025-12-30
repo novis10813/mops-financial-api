@@ -44,3 +44,6 @@ uv.lock
 # Misc
 *.log
 .DS_Store
+
+# Taiwan IFRS Taxonomy (download from MOPS)
+taxonomy/
