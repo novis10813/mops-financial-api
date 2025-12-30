@@ -30,6 +30,22 @@ NAMESPACES = {
     "ixt": "http://www.xbrl.org/inlineXBRL/transformation/2015-02-26",
 }
 
+# Taiwan IFRS Taxonomy 本地路徑
+# 這些 taxonomy 檔案從 MOPS 下載：https://mopsov.twse.com.tw/nas/taxonomy/
+TAXONOMY_BASE = Path(__file__).parent.parent.parent / "taxonomy"
+
+# Schema 路徑對應表 (相對路徑 -> 本地路徑)
+SCHEMA_MAPPINGS = {
+    "tifrs-ci-cr-2020-06-30.xsd": "tifrs-20200630/tifrs-20200630/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2020-06-30.xsd",
+    "tifrs-ci-cr-2019-03-31.xsd": "tifrs-20190331/tifrs-20190331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2019-03-31.xsd",
+    "tifrs-ci-cr-2018-09-30.xsd": "tifrs-20180930/tifrs-20180930/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2018-09-30.xsd",
+    "tifrs-ci-cr-2018-03-31.xsd": "tifrs-20180331/tifrs-20180331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2018-03-31.xsd",
+    "tifrs-ci-cr-2017-03-31.xsd": "tifrs-20170331/tifrs-20170331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2017-03-31.xsd",
+    "tifrs-ci-cr-2015-03-31.xsd": "tifrs-20150331/tifrs-20150331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2015-03-31.xsd",
+    "tifrs-ci-cr-2014-03-31.xsd": "tifrs-20140331/tifrs-20140331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2014-03-31.xsd",
+    "tifrs-ci-cr-2013-03-31.xsd": "tifrs-20130331/tifrs-20130331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2013-03-31.xsd",
+}
+
 
 class XBRLParserError(Exception):
     """XBRL Parser Error"""
@@ -241,12 +257,17 @@ class XBRLParser:
     def _parse_ixbrl_with_arelle(self, content: bytes, package: XBRLPackage) -> XBRLPackage:
         """
         使用 Arelle 解析 iXBRL
-        只需將內容寫入暫存檔，Arelle 會自動處理
+        
+        為了讓 Arelle 能正確載入 Taiwan IFRS taxonomy，
+        我們需要將 iXBRL 中的相對 schemaRef 路徑替換為本地 taxonomy 路徑
         """
         from arelle import Cntlr, ModelManager, FileSource
         
+        # 替換 schemaRef 為本地路徑
+        content_modified = self._replace_schema_refs(content)
+        
         with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
-            tmp.write(content)
+            tmp.write(content_modified)
             tmp_path = tmp.name
         
         try:
@@ -262,15 +283,20 @@ class XBRLParser:
                 if model_xbrl is None:
                     raise XBRLParserError("Failed to load iXBRL document with Arelle")
                 
-                # Arelle 會自動解析引用的 schemaRef，所以 Linkbase 應該都在
+                # 提取所有資料
                 package.calculation_arcs = self._extract_calculation_arcs_arelle(model_xbrl)
                 package.presentation_arcs = self._extract_presentation_arcs_arelle(model_xbrl)
                 package.facts = self._extract_facts_arelle(model_xbrl)
                 package.contexts = self._extract_contexts_arelle(model_xbrl)
                 package.labels, package.labels_en = self._extract_labels_arelle(model_xbrl)
                 
+                # Fallback: 如果 Arelle 無法取得標籤，從 HTML 結構中提取
+                if not package.labels:
+                    logger.warning("Arelle returned empty labels, extracting from HTML structure")
+                    package.labels, package.labels_en = self._extract_labels_from_html(content)
+                
                 model_xbrl.close()
-                logger.info(f"Successfully parsed iXBRL with Arelle: {len(package.facts)} facts, {len(package.presentation_arcs)} presentation concepts")
+                logger.info(f"Successfully parsed iXBRL with Arelle: {len(package.facts)} facts, {len(package.labels)} labels, {len(package.calculation_arcs)} calc parents")
                 
             finally:
                 cntlr.close()
@@ -279,6 +305,33 @@ class XBRLParser:
                 os.remove(tmp_path)
         
         return package
+    
+    def _replace_schema_refs(self, content: bytes) -> bytes:
+        """
+        將 iXBRL 中的相對 schemaRef 路徑替換為本地 taxonomy 路徑
+        
+        例如：
+        xlink:href="tifrs-ci-cr-2020-06-30.xsd"
+        -> xlink:href="file:///path/to/taxonomy/.../tifrs-ci-cr-2020-06-30.xsd"
+        """
+        try:
+            content_str = content.decode('utf-8')
+            
+            for relative_schema, local_path in SCHEMA_MAPPINGS.items():
+                full_local_path = TAXONOMY_BASE / local_path
+                if full_local_path.exists():
+                    # 替換相對路徑為 file:// URI
+                    old_ref = f'xlink:href="{relative_schema}"'
+                    new_ref = f'xlink:href="file://{full_local_path}"'
+                    if old_ref in content_str:
+                        content_str = content_str.replace(old_ref, new_ref)
+                        logger.info(f"Replaced schema ref: {relative_schema} -> {full_local_path}")
+                        break
+            
+            return content_str.encode('utf-8')
+        except Exception as e:
+            logger.warning(f"Failed to replace schema refs: {e}")
+            return content
     
     def parse(
         self,
@@ -681,6 +734,99 @@ class XBRLParser:
                     
         except Exception as e:
             logger.error(f"Error extracting labels with Arelle: {e}")
+        
+        return labels_zh, labels_en
+    
+    def _extract_labels_from_html(self, content: bytes) -> tuple[Dict[str, str], Dict[str, str]]:
+        """
+        從 iXBRL HTML 結構中提取標籤
+        
+        Taiwan IFRS 的 iXBRL 文件中，數值通常在表格中顯示，
+        同一行會有中英文標籤。這個方法透過遍歷 ix:nonFraction 元素
+        並找到其父表格行來提取標籤。
+        
+        Returns:
+            (labels_zh, labels_en) 兩個字典，key 為 concept name
+        """
+        labels_zh: Dict[str, str] = {}
+        labels_en: Dict[str, str] = {}
+        
+        try:
+            parser = etree.HTMLParser(encoding='utf-8')
+            tree = etree.parse(io.BytesIO(content), parser)
+            root = tree.getroot()
+            
+            for elem in root.iter():
+                tag_lower = str(elem.tag).lower()
+                if 'nonfraction' not in tag_lower:
+                    continue
+                
+                name = elem.get("name", "")
+                if not name:
+                    continue
+                
+                concept = name.split(":")[-1] if ":" in name else name
+                
+                # 如果已經有這個 concept 的標籤，跳過
+                if concept in labels_zh:
+                    continue
+                
+                # 向上查找父表格行 (tr)
+                parent = elem.getparent()
+                row = None
+                for _ in range(15):  # 最多向上 15 層
+                    if parent is None:
+                        break
+                    if parent.tag and 'tr' in str(parent.tag).lower():
+                        row = parent
+                        break
+                    parent = parent.getparent()
+                
+                if row is None:
+                    continue
+                
+                # 在行中查找第一個有意義文字的單元格（通常是標籤）
+                for cell in row.iter():
+                    cell_tag = str(cell.tag).lower() if cell.tag else ""
+                    if 'td' not in cell_tag and 'th' not in cell_tag:
+                        continue
+                    
+                    # 提取所有文字內容
+                    text = ''.join(cell.itertext()).strip()
+                    if not text:
+                        continue
+                    
+                    # 跳過純數字內容
+                    clean_text = text.replace(',', '').replace('-', '').replace('.', '').replace(' ', '')
+                    if clean_text.isdigit():
+                        continue
+                    
+                    # 分離中英文標籤（Taiwan IFRS 常用全形空格或兩個半形空格分隔）
+                    # 例如: "現金及約當現金　　Cash and cash equivalents"
+                    parts = text.split('\u3000\u3000')  # 全形空格
+                    if len(parts) < 2:
+                        parts = text.split('  ')  # 兩個半形空格
+                    
+                    if len(parts) >= 2:
+                        zh_text = parts[0].strip()
+                        en_text = parts[1].strip()[:100]  # 限制長度
+                        if zh_text:
+                            labels_zh[concept] = zh_text
+                        if en_text:
+                            labels_en[concept] = en_text
+                    else:
+                        # 只有單一標籤，判斷是中文還是英文
+                        if any('\u4e00' <= c <= '\u9fff' for c in text):
+                            labels_zh[concept] = text[:100]
+                        else:
+                            labels_en[concept] = text[:100]
+                    
+                    break  # 找到第一個有效標籤就停止
+            
+            logger.info(f"Extracted {len(labels_zh)} Chinese labels and {len(labels_en)} English labels from HTML")
+            
+        except Exception as e:
+            logger.error(f"Error extracting labels from HTML: {e}")
         
         return labels_zh, labels_en
 

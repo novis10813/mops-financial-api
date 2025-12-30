@@ -71,8 +71,8 @@ async def get_parsed_xbrl(
     parser = get_xbrl_parser()
     
     try:
-        zip_content = await client.download_xbrl(stock_id, year, quarter)
-        package = parser.parse_zip(zip_content, stock_id, year, quarter)
+        content = await client.download_xbrl(stock_id, year, quarter)
+        package = parser.parse(content, stock_id, year, quarter)
         return package
     except MOPSClientError as e:
         raise HTTPException(status_code=500, detail=str(e.message))
@@ -103,8 +103,8 @@ async def get_calculation_arcs(
     parser = get_xbrl_parser()
     
     try:
-        zip_content = await client.download_xbrl(stock_id, year, quarter)
-        package = parser.parse_zip(zip_content, stock_id, year, quarter)
+        content = await client.download_xbrl(stock_id, year, quarter)
+        package = parser.parse(content, stock_id, year, quarter)
         
         return {
             "stock_id": stock_id,

@@ -21,42 +21,32 @@ class MetricsService:
         self, 
         stock_id: str, 
         start_year: int, 
-        quarters: int
+        years: int
     ) -> CompanyMetric:
         """
-        取得 ROE 數據序列
+        取得 ROE 數據序列（使用年報資料）
         
         Args:
             stock_id: 股票代號
-            start_year: 開始年份 (e.g. 109)
-            quarters: 總共要抓幾季
+            start_year: 開始年份 (民國年，目前未使用)
+            years: 要取幾年的資料
             
         Returns:
             CompanyMetric with list of data points
         """
-        # 生成要查詢的 時間點 (year, quarter)
-        # 倒序生成，從最近的開始
-        targets = []
+        # 只使用 Q4 (年報) 資料，避免季報資料不完整的問題
         current_year = 113  # TODO: 動態取得當前年份
-        current_q = 3       # TODO: 動態取得當前季度
         
-        # 簡單起見，我們先做最近 N 年的 Q4 (年報) 比較，或者是最近 N 季
-        # 用戶指令: !plot 2330 2887 ROE 5 (年)
-        # 根據之前的討論，我們顯示"季度"變化圖會比較細緻。
+        # 產生要查詢的年份列表（從最近的年報往回推）
+        # 例如: years=5 會取 108, 109, 110, 111, 112 年的年報
+        targets = []
+        for i in range(years):
+            year = current_year - 1 - i  # -1 因為當年年報可能還沒出
+            targets.append((year, 4))  # 只取 Q4
         
-        # 產生最近 quarters 個季度的列表
-        # 假設從 113 Q3 往回推
-        y, q = current_year, current_q
-        for _ in range(quarters):
-            targets.append((y, q))
-            q -= 1
-            if q < 1:
-                q = 4
-                y -= 1
+        targets.reverse()  # 轉為時間順序
         
-        targets.reverse() # 轉為時間順序
-        
-        logger.info(f"Calculating ROE for {stock_id} over {len(targets)} periods")
+        logger.info(f"Calculating annual ROE for {stock_id} over {len(targets)} years")
         
         # 並行抓取資料
         tasks = []

@@ -31,13 +31,10 @@ async def get_comparison_chart(
     stock_list = [s.strip() for s in stocks.split(",")]
     metrics_data = []
     
-    # 目前先根據 years 轉換成 quarters 數量 (簡單起見 1 year = 4 quarters)
-    # 使用者輸入 5 代表 5 年 = 20 季
-    quarters_count = years * 4
-    
     for stock_id in stock_list:
         if metric.upper() == "ROE":
-            data = await metric_service.get_roe_series(stock_id, 109, quarters_count)
+            # years 參數直接傳給 get_roe_series，使用年報資料計算
+            data = await metric_service.get_roe_series(stock_id, 109, years)
             metrics_data.append(data)
         else:
              raise HTTPException(status_code=400, detail=f"Metric {metric} not supported yet")
