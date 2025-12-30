@@ -230,9 +230,19 @@ class FinancialService:
         weight_map: dict[str, float],
         parent: Optional[str] = None,
         level: int = 0,
+        visited: Optional[set] = None,
+        max_depth: int = 20,
     ) -> List[FinancialItem]:
         """從 Presentation Linkbase 建立樹狀結構"""
         items: List[FinancialItem] = []
+        
+        # 初始化 visited set
+        if visited is None:
+            visited = set()
+        
+        # 防止無限遞迴：最大深度或已訪問過
+        if level > max_depth:
+            return items
         
         # 獲取當前層級的所有項目
         if parent is None:
@@ -288,6 +298,11 @@ class FinancialService:
         for arc in sorted_arcs:
             concept = arc.to_concept
             
+            # 跳過已訪問過的節點（防止循環引用）
+            if concept in visited:
+                continue
+            visited.add(concept)
+            
             # 取得標籤
             label_zh = labels_zh.get(concept, concept)
             label_en = labels_en.get(concept)
@@ -314,6 +329,8 @@ class FinancialService:
                 weight_map,
                 parent=concept,
                 level=level + 1,
+                visited=visited,
+                max_depth=max_depth,
             )
             
             item = FinancialItem(
