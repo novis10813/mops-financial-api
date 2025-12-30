@@ -31,20 +31,34 @@ NAMESPACES = {
 }
 
 # Taiwan IFRS Taxonomy 本地路徑
-# 這些 taxonomy 檔案從 MOPS 下載：https://mopsov.twse.com.tw/nas/taxonomy/
+# 這些 taxonomy 檔案由 TaxonomyManager 自動管理
 TAXONOMY_BASE = Path(__file__).parent.parent.parent / "taxonomy"
 
-# Schema 路徑對應表 (相對路徑 -> 本地路徑)
-SCHEMA_MAPPINGS = {
-    "tifrs-ci-cr-2020-06-30.xsd": "tifrs-20200630/tifrs-20200630/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2020-06-30.xsd",
-    "tifrs-ci-cr-2019-03-31.xsd": "tifrs-20190331/tifrs-20190331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2019-03-31.xsd",
-    "tifrs-ci-cr-2018-09-30.xsd": "tifrs-20180930/tifrs-20180930/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2018-09-30.xsd",
-    "tifrs-ci-cr-2018-03-31.xsd": "tifrs-20180331/tifrs-20180331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2018-03-31.xsd",
-    "tifrs-ci-cr-2017-03-31.xsd": "tifrs-20170331/tifrs-20170331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2017-03-31.xsd",
-    "tifrs-ci-cr-2015-03-31.xsd": "tifrs-20150331/tifrs-20150331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2015-03-31.xsd",
-    "tifrs-ci-cr-2014-03-31.xsd": "tifrs-20140331/tifrs-20140331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2014-03-31.xsd",
-    "tifrs-ci-cr-2013-03-31.xsd": "tifrs-20130331/tifrs-20130331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2013-03-31.xsd",
-}
+def _get_schema_mappings() -> dict:
+    """
+    動態取得 schema 路徑對應表
+    優先使用 TaxonomyManager，若不可用則使用 fallback
+    """
+    try:
+        from app.services.taxonomy_manager import get_taxonomy_manager
+        manager = get_taxonomy_manager()
+        mappings = manager.get_schema_mappings()
+        if mappings:
+            return mappings
+    except Exception as e:
+        logger.warning(f"Failed to get schema mappings from TaxonomyManager: {e}")
+    
+    # Fallback: 靜態對應表
+    return {
+        "tifrs-ci-cr-2020-06-30.xsd": str(TAXONOMY_BASE / "tifrs-20200630/tifrs-20200630/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2020-06-30.xsd"),
+        "tifrs-ci-cr-2019-03-31.xsd": str(TAXONOMY_BASE / "tifrs-20190331/tifrs-20190331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2019-03-31.xsd"),
+        "tifrs-ci-cr-2018-09-30.xsd": str(TAXONOMY_BASE / "tifrs-20180930/tifrs-20180930/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2018-09-30.xsd"),
+        "tifrs-ci-cr-2018-03-31.xsd": str(TAXONOMY_BASE / "tifrs-20180331/tifrs-20180331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2018-03-31.xsd"),
+        "tifrs-ci-cr-2017-03-31.xsd": str(TAXONOMY_BASE / "tifrs-20170331/tifrs-20170331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2017-03-31.xsd"),
+        "tifrs-ci-cr-2015-03-31.xsd": str(TAXONOMY_BASE / "tifrs-20150331/tifrs-20150331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2015-03-31.xsd"),
+        "tifrs-ci-cr-2014-03-31.xsd": str(TAXONOMY_BASE / "tifrs-20140331/tifrs-20140331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2014-03-31.xsd"),
+        "tifrs-ci-cr-2013-03-31.xsd": str(TAXONOMY_BASE / "tifrs-20130331/tifrs-20130331/XBRL_TW_Entry_Points/CI/CR/tifrs-ci-cr-2013-03-31.xsd"),
+    }
 
 
 class XBRLParserError(Exception):
@@ -316,9 +330,10 @@ class XBRLParser:
         """
         try:
             content_str = content.decode('utf-8')
+            schema_mappings = _get_schema_mappings()
             
-            for relative_schema, local_path in SCHEMA_MAPPINGS.items():
-                full_local_path = TAXONOMY_BASE / local_path
+            for relative_schema, local_path in schema_mappings.items():
+                full_local_path = Path(local_path)
                 if full_local_path.exists():
                     # 替換相對路徑為 file:// URI
                     old_ref = f'xlink:href="{relative_schema}"'

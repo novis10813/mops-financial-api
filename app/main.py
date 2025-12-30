@@ -1,15 +1,40 @@
 """
 MOPS Financial API - FastAPI Application
 """
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import financial, xbrl, analysis
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events"""
+    # Startup: Initialize taxonomies
+    try:
+        from app.services.taxonomy_manager import init_taxonomies
+        await init_taxonomies()
+        logger.info("Taxonomy initialization complete")
+    except Exception as e:
+        logger.warning(f"Failed to initialize taxonomies: {e}")
+        logger.warning("Application will use fallback schema mappings")
+    
+    yield
+    
+    # Shutdown: Cleanup if needed
+    logger.info("Application shutting down")
+
+
 app = FastAPI(
     title="MOPS Financial API",
     description="REST API for Taiwan MOPS financial reports with XBRL parsing",
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -37,3 +62,4 @@ async def root():
 async def health():
     """Health check endpoint"""
     return {"status": "healthy"}
+

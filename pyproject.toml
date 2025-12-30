@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "arelle-release>=2.0.0",
     "matplotlib>=3.10.8",
+    "beautifulsoup4>=4.14.3",
 ]
 
 [project.optional-dependencies]
