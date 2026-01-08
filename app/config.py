@@ -12,9 +12,20 @@ class Settings(BaseSettings):
     request_timeout: float = 30.0
     max_retries: int = 3
     
-    # Database settings
-    database_url: str = "postgresql+asyncpg://postgres:postgres@core-postgres:5432/mops_financial_db"
+    # Database settings - 分離變數，和 docker-compose POSTGRES_* 對齊
+    postgres_user: str = "postgres"
+    postgres_password: str = "postgres"
+    postgres_host: str = "core-postgres"
+    postgres_port: int = 5432
+    postgres_db: str = "mops_financial_db"
+    
+    @property
+    def database_url(self) -> str:
+        """組合成 SQLAlchemy 連接字串"""
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
 
 settings = Settings()
-
