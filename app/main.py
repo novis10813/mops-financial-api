@@ -24,9 +24,25 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to initialize taxonomies: {e}")
         logger.warning("Application will use fallback schema mappings")
     
+    # Startup: Initialize database
+    try:
+        from app.db import init_db
+        await init_db()
+        logger.info("Database initialization complete")
+    except Exception as e:
+        logger.warning(f"Failed to initialize database: {e}")
+        logger.warning("Database features will be unavailable")
+    
     yield
     
-    # Shutdown: Cleanup if needed
+    # Shutdown: Close database connection
+    try:
+        from app.db import close_db
+        await close_db()
+        logger.info("Database connection closed")
+    except Exception as e:
+        logger.warning(f"Error closing database: {e}")
+    
     logger.info("Application shutting down")
 
 

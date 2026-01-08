@@ -47,3 +47,8 @@ uv.lock
 
 # Taiwan IFRS Taxonomy (download from MOPS)
 taxonomy/
+
+# Environment files (contain secrets)
+.env
+.env.dev
+.env.prod

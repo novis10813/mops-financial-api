@@ -1,0 +1,36 @@
+# Development Docker Compose for mops-financial-api
+# 
+# Prerequisites:
+#   1. core-postgres must be running and connected to gateway_internal network
+#   2. mops_financial_db must exist in core-postgres
+#
+# Usage: 
+#   docker compose -f docker-compose.dev.yml up --build
+
+services:
+  mops-financial-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mops-financial-api-dev
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    ports:
+      - "8010:8000"
+    volumes:
+      # Mount source for hot reload during development
+      - ./app:/app/app:ro
+      - ./taxonomy:/app/taxonomy:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - gateway_internal
+
+networks:
+  gateway_internal:
+    external: true
