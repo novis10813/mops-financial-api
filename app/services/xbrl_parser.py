@@ -23,6 +23,22 @@ from app.parsers.linkbase import (
     parse_presentation_linkbase,
     parse_label_linkbase,
 )
+from app.parsers.lxml_parser import (
+    parse_instance_facts,
+    parse_instance_contexts,
+)
+from app.parsers.arelle import (
+    check_arelle_available,
+    extract_calculation_arcs,
+    extract_presentation_arcs,
+    extract_facts,
+    extract_contexts,
+    extract_labels,
+)
+from app.parsers.ixbrl import (
+    replace_schema_refs,
+    extract_labels_from_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +102,7 @@ class XBRLParser:
     
     def _check_arelle(self) -> bool:
         """檢查 Arelle 是否可用"""
-        try:
-            from arelle import Cntlr
-            return True
-        except ImportError:
-            return False
+        return check_arelle_available()
     
     def parse_zip(
         self, 
@@ -328,30 +340,9 @@ class XBRLParser:
     def _replace_schema_refs(self, content: bytes) -> bytes:
         """
         將 iXBRL 中的相對 schemaRef 路徑替換為本地 taxonomy 路徑
-        
-        例如：
-        xlink:href="tifrs-ci-cr-2020-06-30.xsd"
-        -> xlink:href="file:///path/to/taxonomy/.../tifrs-ci-cr-2020-06-30.xsd"
         """
-        try:
-            content_str = content.decode('utf-8')
-            schema_mappings = _get_schema_mappings()
-            
-            for relative_schema, local_path in schema_mappings.items():
-                full_local_path = Path(local_path)
-                if full_local_path.exists():
-                    # 替換相對路徑為 file:// URI
-                    old_ref = f'xlink:href="{relative_schema}"'
-                    new_ref = f'xlink:href="file://{full_local_path}"'
-                    if old_ref in content_str:
-                        content_str = content_str.replace(old_ref, new_ref)
-                        logger.info(f"Replaced schema ref: {relative_schema} -> {full_local_path}")
-                        break
-            
-            return content_str.encode('utf-8')
-        except Exception as e:
-            logger.warning(f"Failed to replace schema refs: {e}")
-            return content
+        schema_mappings = _get_schema_mappings()
+        return replace_schema_refs(content, schema_mappings)
     
     def parse(
         self,
@@ -495,282 +486,36 @@ class XBRLParser:
     
     def _parse_instance_facts(self, content: bytes) -> List[XBRLFact]:
         """解析 Instance Document 中的 facts"""
-        facts: List[XBRLFact] = []
-        
-        try:
-            tree = etree.parse(io.BytesIO(content))
-            root = tree.getroot()
-            
-            # 遍歷所有元素尋找 fact
-            for elem in root.iter():
-                context_ref = elem.get("contextRef")
-                if context_ref:
-                    # 這是一個 fact
-                    concept = etree.QName(elem.tag).localname
-                    facts.append(XBRLFact(
-                        concept=concept,
-                        value=elem.text,
-                        unit=elem.get("unitRef"),
-                        context_ref=context_ref,
-                        decimals=int(elem.get("decimals")) if elem.get("decimals") else None,
-                    ))
-                    
-            logger.info(f"Parsed {len(facts)} facts from instance")
-            
-        except etree.XMLSyntaxError as e:
-            logger.error(f"XML syntax error in instance document: {e}")
-        
-        return facts
+        return parse_instance_facts(content)
     
     def _parse_instance_contexts(self, content: bytes) -> Dict[str, XBRLContext]:
         """解析 Instance Document 中的 contexts"""
-        contexts: Dict[str, XBRLContext] = {}
-        
-        try:
-            tree = etree.parse(io.BytesIO(content))
-            root = tree.getroot()
-            
-            for ctx in root.iter("{http://www.xbrl.org/2003/instance}context"):
-                ctx_id = ctx.get("id", "")
-                
-                # 提取 entity
-                entity_elem = ctx.find(".//{http://www.xbrl.org/2003/instance}identifier")
-                entity = entity_elem.text if entity_elem is not None else ""
-                
-                # 提取 period
-                instant = None
-                start_date = None
-                end_date = None
-                
-                instant_elem = ctx.find(".//{http://www.xbrl.org/2003/instance}instant")
-                if instant_elem is not None:
-                    instant = instant_elem.text
-                else:
-                    start_elem = ctx.find(".//{http://www.xbrl.org/2003/instance}startDate")
-                    end_elem = ctx.find(".//{http://www.xbrl.org/2003/instance}endDate")
-                    if start_elem is not None:
-                        start_date = start_elem.text
-                    if end_elem is not None:
-                        end_date = end_elem.text
-                
-                contexts[ctx_id] = XBRLContext(
-                    context_id=ctx_id,
-                    entity=entity,
-                    period_start=start_date,
-                    period_end=end_date,
-                    instant=instant,
-                )
-                
-            logger.info(f"Parsed {len(contexts)} contexts from instance")
-            
-        except etree.XMLSyntaxError as e:
-            logger.error(f"XML syntax error parsing contexts: {e}")
-        
-        return contexts
+        return parse_instance_contexts(content)
     
     # Arelle-specific extraction methods
     def _extract_calculation_arcs_arelle(self, model_xbrl) -> Dict[str, List[CalculationArc]]:
         """使用 Arelle 提取 Calculation Arcs"""
-        result: Dict[str, List[CalculationArc]] = {}
-        
-        try:
-            from arelle import XbrlConst
-            
-            for rel in model_xbrl.relationshipSet(XbrlConst.summationItem).modelRelationships:
-                from_concept = rel.fromModelObject.qname.localName
-                to_concept = rel.toModelObject.qname.localName
-                
-                if from_concept not in result:
-                    result[from_concept] = []
-                
-                result[from_concept].append(CalculationArc(
-                    from_concept=from_concept,
-                    to_concept=to_concept,
-                    weight=rel.weight,
-                    order=rel.order or 0.0,
-                ))
-        except Exception as e:
-            logger.error(f"Error extracting calculation arcs with Arelle: {e}")
-        
-        return result
+        return extract_calculation_arcs(model_xbrl)
     
     def _extract_presentation_arcs_arelle(self, model_xbrl) -> Dict[str, List[PresentationArc]]:
         """使用 Arelle 提取 Presentation Arcs"""
-        result: Dict[str, List[PresentationArc]] = {}
-        
-        try:
-            from arelle import XbrlConst
-            
-            for rel in model_xbrl.relationshipSet(XbrlConst.parentChild).modelRelationships:
-                from_concept = rel.fromModelObject.qname.localName
-                to_concept = rel.toModelObject.qname.localName
-                
-                if from_concept not in result:
-                    result[from_concept] = []
-                
-                result[from_concept].append(PresentationArc(
-                    from_concept=from_concept,
-                    to_concept=to_concept,
-                    order=rel.order or 0.0,
-                    preferred_label=rel.preferredLabel,
-                ))
-        except Exception as e:
-            logger.error(f"Error extracting presentation arcs with Arelle: {e}")
-        
-        return result
+        return extract_presentation_arcs(model_xbrl)
     
     def _extract_facts_arelle(self, model_xbrl) -> List[XBRLFact]:
         """使用 Arelle 提取 Facts"""
-        facts: List[XBRLFact] = []
-        
-        try:
-            for fact in model_xbrl.facts:
-                facts.append(XBRLFact(
-                    concept=fact.qname.localName,
-                    value=str(fact.value) if fact.value is not None else None,
-                    unit=fact.unit.id if fact.unit else None,
-                    context_ref=fact.context.id if fact.context else "",
-                    decimals=fact.decimals if hasattr(fact, 'decimals') else None,
-                ))
-        except Exception as e:
-            logger.error(f"Error extracting facts with Arelle: {e}")
-        
-        return facts
+        return extract_facts(model_xbrl)
     
     def _extract_contexts_arelle(self, model_xbrl) -> Dict[str, XBRLContext]:
         """使用 Arelle 提取 Contexts"""
-        contexts: Dict[str, XBRLContext] = {}
-        
-        try:
-            for ctx in model_xbrl.contexts.values():
-                contexts[ctx.id] = XBRLContext(
-                    context_id=ctx.id,
-                    entity=ctx.entityIdentifier[1] if ctx.entityIdentifier else "",
-                    period_start=str(ctx.startDatetime) if ctx.startDatetime else None,
-                    period_end=str(ctx.endDatetime) if ctx.endDatetime else None,
-                    instant=str(ctx.instantDatetime) if ctx.isInstantPeriod else None,
-                )
-        except Exception as e:
-            logger.error(f"Error extracting contexts with Arelle: {e}")
-        
-        return contexts
+        return extract_contexts(model_xbrl)
     
     def _extract_labels_arelle(self, model_xbrl) -> tuple[Dict[str, str], Dict[str, str]]:
         """使用 Arelle 提取 Labels"""
-        labels_zh: Dict[str, str] = {}
-        labels_en: Dict[str, str] = {}
-        
-        try:
-            for concept in model_xbrl.qnameConcepts.values():
-                name = concept.qname.localName
-                
-                # 嘗試取得中文標籤
-                label_zh = concept.label(lang="zh-TW") or concept.label(lang="zh")
-                if label_zh:
-                    labels_zh[name] = label_zh
-                
-                # 嘗試取得英文標籤  
-                label_en = concept.label(lang="en")
-                if label_en:
-                    labels_en[name] = label_en
-                    
-        except Exception as e:
-            logger.error(f"Error extracting labels with Arelle: {e}")
-        
-        return labels_zh, labels_en
+        return extract_labels(model_xbrl)
     
     def _extract_labels_from_html(self, content: bytes) -> tuple[Dict[str, str], Dict[str, str]]:
-        """
-        從 iXBRL HTML 結構中提取標籤
-        
-        Taiwan IFRS 的 iXBRL 文件中，數值通常在表格中顯示，
-        同一行會有中英文標籤。這個方法透過遍歷 ix:nonFraction 元素
-        並找到其父表格行來提取標籤。
-        
-        Returns:
-            (labels_zh, labels_en) 兩個字典，key 為 concept name
-        """
-        labels_zh: Dict[str, str] = {}
-        labels_en: Dict[str, str] = {}
-        
-        try:
-            parser = etree.HTMLParser(encoding='utf-8')
-            tree = etree.parse(io.BytesIO(content), parser)
-            root = tree.getroot()
-            
-            for elem in root.iter():
-                tag_lower = str(elem.tag).lower()
-                if 'nonfraction' not in tag_lower:
-                    continue
-                
-                name = elem.get("name", "")
-                if not name:
-                    continue
-                
-                concept = name.split(":")[-1] if ":" in name else name
-                
-                # 如果已經有這個 concept 的標籤，跳過
-                if concept in labels_zh:
-                    continue
-                
-                # 向上查找父表格行 (tr)
-                parent = elem.getparent()
-                row = None
-                for _ in range(15):  # 最多向上 15 層
-                    if parent is None:
-                        break
-                    if parent.tag and 'tr' in str(parent.tag).lower():
-                        row = parent
-                        break
-                    parent = parent.getparent()
-                
-                if row is None:
-                    continue
-                
-                # 在行中查找第一個有意義文字的單元格（通常是標籤）
-                for cell in row.iter():
-                    cell_tag = str(cell.tag).lower() if cell.tag else ""
-                    if 'td' not in cell_tag and 'th' not in cell_tag:
-                        continue
-                    
-                    # 提取所有文字內容
-                    text = ''.join(cell.itertext()).strip()
-                    if not text:
-                        continue
-                    
-                    # 跳過純數字內容
-                    clean_text = text.replace(',', '').replace('-', '').replace('.', '').replace(' ', '')
-                    if clean_text.isdigit():
-                        continue
-                    
-                    # 分離中英文標籤（Taiwan IFRS 常用全形空格或兩個半形空格分隔）
-                    # 例如: "現金及約當現金　　Cash and cash equivalents"
-                    parts = text.split('\u3000\u3000')  # 全形空格
-                    if len(parts) < 2:
-                        parts = text.split('  ')  # 兩個半形空格
-                    
-                    if len(parts) >= 2:
-                        zh_text = parts[0].strip()
-                        en_text = parts[1].strip()[:100]  # 限制長度
-                        if zh_text:
-                            labels_zh[concept] = zh_text
-                        if en_text:
-                            labels_en[concept] = en_text
-                    else:
-                        # 只有單一標籤，判斷是中文還是英文
-                        if any('\u4e00' <= c <= '\u9fff' for c in text):
-                            labels_zh[concept] = text[:100]
-                        else:
-                            labels_en[concept] = text[:100]
-                    
-                    break  # 找到第一個有效標籤就停止
-            
-            logger.info(f"Extracted {len(labels_zh)} Chinese labels and {len(labels_en)} English labels from HTML")
-            
-        except Exception as e:
-            logger.error(f"Error extracting labels from HTML: {e}")
-        
-        return labels_zh, labels_en
+        """從 iXBRL HTML 結構中提取標籤"""
+        return extract_labels_from_html(content)
 
 
 # Singleton instance
