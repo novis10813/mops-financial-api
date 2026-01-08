@@ -162,7 +162,7 @@ async def get_simplified_statement(
     )
     from app.services.mops_client import get_mops_client, MOPSClientError
     from app.services.xbrl_parser import get_xbrl_parser
-    from decimal import Decimal, InvalidOperation
+    from app.utils.numerics import parse_financial_value
     
     # Validate statement type
     valid_types = ["income_statement", "balance_sheet", "cash_flow"]
@@ -201,15 +201,11 @@ async def get_simplified_statement(
             if fact.value is None:
                 continue
             
-            # Convert value to float
-            try:
-                value_str = str(fact.value).replace(",", "").strip()
-                if value_str and value_str not in ("-", ""):
-                    value_float = float(Decimal(value_str))
-                else:
-                    continue
-            except (InvalidOperation, ValueError):
+            # Convert value to float（使用統一工具）
+            parsed = parse_financial_value(fact.value)
+            if parsed is None:
                 continue
+            value_float = float(parsed)
             
             seen_types.add(concept)
             

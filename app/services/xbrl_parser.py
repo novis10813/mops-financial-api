@@ -192,8 +192,8 @@ class XBRLParser:
                     
                     # 取得原始值並根據 scale 調整
                     raw_value = elem.text or ""
-                    # 移除數字格式中的逗號
-                    raw_value = raw_value.replace(",", "")
+                    # 移除數字格式中的逗號（保留原始字串格式給後續處理）
+                    raw_value = raw_value.replace(",", "").strip()
                     
                     # 從 name 中提取 concept (格式: namespace:concept)
                     concept = name.split(":")[-1] if ":" in name else name

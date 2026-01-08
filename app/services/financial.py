@@ -5,6 +5,10 @@ Orchestrates MOPS download and XBRL parsing to produce structured financial stat
 Key Feature: Q4 Standalone Calculation
 - For income statement: Q4 standalone = Annual - Q3 accumulated
 - For balance sheet & cash flow: No calculation needed
+
+Caching Strategy:
+- Check database cache first before fetching from MOPS
+- Save fetched reports to database for future requests
 """
 import logging
 from typing import Optional, List, Dict
@@ -14,6 +18,9 @@ from app.schemas.financial import FinancialStatement, FinancialItem
 from app.schemas.xbrl import XBRLPackage, CalculationArc
 from app.services.mops_client import get_mops_client, MOPSClientError
 from app.services.xbrl_parser import get_xbrl_parser, XBRLParserError
+from app.utils.numerics import parse_financial_value
+from app.db.connection import get_session
+from app.db.repository import FinancialRepository
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +57,10 @@ class FinancialService:
         quarter: Optional[int] = None,
         report_type: str = "balance_sheet",
         format: str = "tree",
+        use_cache: bool = True,
     ) -> FinancialStatement:
         """
-        取得財務報表
+        取得財務報表（優先從資料庫快取讀取）
         
         Args:
             stock_id: 股票代號
@@ -60,6 +68,7 @@ class FinancialService:
             quarter: 季度 (1-4)，若為 None 則取年報原始資料
             report_type: balance_sheet, income_statement, cash_flow
             format: tree (階層) 或 flat (扁平)
+            use_cache: 是否使用資料庫快取（預設 True）
         
         Returns:
             FinancialStatement with hierarchical items
@@ -67,11 +76,34 @@ class FinancialService:
         Note:
             - quarter=4 時，損益表會計算 Q4 單季 = 年報 - Q3累計
             - quarter=None 時，直接回傳年報（Q4）原始資料
+            - 快取以 (stock_id, year, quarter, report_type) 為 key
         """
         # 決定要下載的季度
         download_quarter = quarter if quarter else 4
         
-        # 下載 XBRL
+        # 1. 先檢查資料庫快取
+        if use_cache:
+            try:
+                async with get_session() as session:
+                    repo = FinancialRepository(session)
+                    cached = await repo.get_report(
+                        stock_id=stock_id,
+                        year=year,
+                        quarter=download_quarter,
+                        report_type=report_type,
+                    )
+                    if cached:
+                        logger.info(f"Cache hit for {stock_id} {year}Q{download_quarter} {report_type}")
+                        # 如果需要扁平格式
+                        if format == "flat":
+                            cached.items = self._flatten_items(cached.items)
+                        return cached
+            except Exception as e:
+                logger.warning(f"Cache lookup failed, falling back to MOPS: {e}")
+        
+        # 2. 沒有快取，從 MOPS 下載
+        logger.info(f"Cache miss for {stock_id} {year}Q{download_quarter} {report_type}, fetching from MOPS")
+        
         try:
             content = await self.mops_client.download_xbrl(stock_id, year, download_quarter)
         except MOPSClientError as e:
@@ -79,7 +111,6 @@ class FinancialService:
         
         # 解析 XBRL
         try:
-            # 判斷是 ZIP 還是 iXBRL
             package = self.xbrl_parser.parse(content, stock_id, year, download_quarter)
         except XBRLParserError as e:
             raise FinancialServiceError(f"Failed to parse XBRL: {e}")
@@ -92,6 +123,15 @@ class FinancialService:
         else:
             # 一般情況：直接建構報表
             statement = self._build_statement(package, report_type)
+        
+        # 3. 儲存到資料庫快取
+        try:
+            async with get_session() as session:
+                repo = FinancialRepository(session)
+                await repo.save_report(statement)
+                logger.info(f"Saved to cache: {stock_id} {year}Q{download_quarter} {report_type}")
+        except Exception as e:
+            logger.warning(f"Failed to save to cache (non-fatal): {e}")
         
         # 如果需要扁平格式
         if format == "flat":
@@ -131,22 +171,17 @@ class FinancialService:
         for concept, q4_value in q4_facts.items():
             q3_value = q3_facts.get(concept, "0")
             
-            try:
-                # 清理數值字串
-                q4_clean = str(q4_value).replace(",", "").strip() if q4_value else ""
-                q3_clean = str(q3_value).replace(",", "").strip() if q3_value else ""
-                
-                # 跳過空值或非數值
-                if not q4_clean or not q4_clean.lstrip('-').replace('.', '').isdigit():
-                    q4_standalone_facts[concept] = q4_value
-                    continue
-                
-                q4_num = Decimal(q4_clean)
-                q3_num = Decimal(q3_clean) if q3_clean and q3_clean.lstrip('-').replace('.', '').isdigit() else Decimal(0)
-                q4_standalone_facts[concept] = str(q4_num - q3_num)
-            except Exception:
+            # 使用統一的數值解析
+            q4_num = parse_financial_value(q4_value)
+            q3_num = parse_financial_value(q3_value)
+            
+            if q4_num is None:
                 # 非數值型資料，保留原值
                 q4_standalone_facts[concept] = q4_value
+            else:
+                # 計算 Q4 單季 = Q4 累計 - Q3 累計
+                q3_num = q3_num if q3_num is not None else Decimal(0)
+                q4_standalone_facts[concept] = str(q4_num - q3_num)
         
         # 用計算後的 facts 建立報表
         statement = self._build_statement_with_facts(
@@ -253,14 +288,8 @@ class FinancialService:
                 logger.warning("No presentation arcs found, falling back to all facts list")
                 fallback_items = []
                 for concept, value_str in fact_values.items():
-                    # 解析數值
-                    value = None
-                    try:
-                        clean_val = str(value_str).replace(",", "").strip()
-                        if clean_val and (clean_val.isdigit() or clean_val.lstrip('-').replace('.', '').isdigit()):
-                            value = Decimal(clean_val)
-                    except (ValueError, TypeError):
-                        pass
+                    # 解析數值（使用統一工具）
+                    value = parse_financial_value(value_str)
 
                     label_zh = labels_zh.get(concept, concept)
                     label_en = labels_en.get(concept)
@@ -307,15 +336,8 @@ class FinancialService:
             label_zh = labels_zh.get(concept, concept)
             label_en = labels_en.get(concept)
             
-            # 取得數值
-            value = None
-            if concept in fact_values and fact_values[concept]:
-                try:
-                    val_str = str(fact_values[concept]).replace(",", "").strip()
-                    if val_str and val_str not in ("-", ""):
-                        value = Decimal(val_str)
-                except (ValueError, TypeError, InvalidOperation):
-                    pass
+            # 取得數值（使用統一工具）
+            value = parse_financial_value(fact_values.get(concept))
             
             # 取得 weight（加減邏輯）
             weight = weight_map.get(concept, 1.0)
