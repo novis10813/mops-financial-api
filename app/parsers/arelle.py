@@ -106,8 +106,8 @@ def extract_facts(model_xbrl: Any) -> List[XBRLFact]:
             facts.append(XBRLFact(
                 concept=fact.qname.localName,
                 value=str(fact.value) if fact.value is not None else None,
-                unit=fact.unit.id if fact.unit else None,
-                context_ref=fact.context.id if fact.context else "",
+                unit=fact.unit.id if fact.unit is not None else None,
+                context_ref=fact.context.id if fact.context is not None else "",
                 decimals=fact.decimals if hasattr(fact, 'decimals') else None,
             ))
     except Exception as e:
