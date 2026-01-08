@@ -111,7 +111,7 @@ class FinancialFact(Base):
     )
     
     # 科目資訊
-    concept = Column(String(100), nullable=False, comment="XBRL concept (e.g., Assets, Revenue)")
+    concept = Column(String(255), nullable=False, comment="XBRL concept (e.g., Assets, Revenue)")
     label_zh = Column(String(200), comment="中文名稱")
     label_en = Column(String(200), comment="英文名稱")
     
