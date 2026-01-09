@@ -7,9 +7,9 @@ from fastapi import APIRouter, Query, HTTPException
 
 from app.services.disclosure import (
     get_disclosure_service,
-    DisclosureResponse,
     DisclosureServiceError,
 )
+from app.schemas.disclosure import DisclosureResponse
 
 router = APIRouter(prefix="/disclosure", tags=["Corporate - 公司治理面"])
 

@@ -8,9 +8,11 @@ from fastapi import APIRouter, Query, HTTPException
 
 from app.services.dividend import (
     get_dividend_service,
+    DividendServiceError,
+)
+from app.schemas.dividend import (
     DividendResponse,
     DividendSummary,
-    DividendServiceError,
 )
 
 router = APIRouter(prefix="/dividend", tags=["Corporate - 公司治理面"])

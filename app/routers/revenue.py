@@ -8,9 +8,11 @@ from fastapi import APIRouter, Query, HTTPException
 
 from app.services.revenue import (
     get_revenue_service,
+    RevenueServiceError,
+)
+from app.schemas.revenue import (
     MonthlyRevenue,
     MarketRevenueResponse,
-    RevenueServiceError,
 )
 
 router = APIRouter(prefix="/revenue", tags=["Operations - 營運面"])
