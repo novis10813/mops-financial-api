@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import financial, xbrl, analysis, revenue
+from app.routers import financial, xbrl, analysis, revenue, insiders
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ app.include_router(financial.router, prefix="/api/v1/financial", tags=["financia
 app.include_router(xbrl.router, prefix="/api/v1/xbrl", tags=["xbrl"])
 app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["analysis"])
 app.include_router(revenue.router, prefix="/api/v1", tags=["revenue"])
+app.include_router(insiders.router, prefix="/api/v1", tags=["insiders"])
 
 
 @app.get("/")
