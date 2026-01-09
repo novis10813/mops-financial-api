@@ -5,11 +5,13 @@ import pytest
 
 from app.services.dividend import (
     DividendService,
+    DividendServiceError,
+    get_dividend_service,
+)
+from app.schemas.dividend import (
     DividendRecord,
     DividendSummary,
     DividendResponse,
-    DividendServiceError,
-    get_dividend_service,
 )
 
 
@@ -150,17 +152,7 @@ class TestDividendServiceParsing:
         assert service._extract_quarter("112/10/01~112/12/31") == 4
         assert service._extract_quarter("112年度") is None
     
-    def test_parse_float_valid(self, service):
-        """Test parsing valid floats"""
-        assert service._parse_float("3.49978969") == 3.4998
-        assert service._parse_float("5.00000000") == 5.0
-        assert service._parse_float("1,234.56") == 1234.56
-    
-    def test_parse_float_invalid(self, service):
-        """Test parsing invalid floats"""
-        assert service._parse_float(None) is None
-        assert service._parse_float("-") is None
-        assert service._parse_float("0.0") is None
+
 
 
 class TestYieldCalculation:

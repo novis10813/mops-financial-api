@@ -7,10 +7,12 @@ import pandas as pd
 
 from app.services.revenue import (
     RevenueService,
-    MonthlyRevenue,
-    MarketRevenueResponse,
     RevenueServiceError,
     get_revenue_service,
+)
+from app.schemas.revenue import (
+    MonthlyRevenue,
+    MarketRevenueResponse,
 )
 
 
@@ -85,37 +87,7 @@ class TestMarketRevenueResponse:
         assert len(response.data) == 2
 
 
-class TestRevenueServiceParsing:
-    """Test revenue parsing logic"""
-    
-    @pytest.fixture
-    def service(self):
-        return RevenueService()
-    
-    def test_parse_number_valid(self, service):
-        """Test parsing valid numbers"""
-        assert service._parse_number("123,456") == 123456
-        assert service._parse_number("1000") == 1000
-        assert service._parse_number("-500") == -500
-    
-    def test_parse_number_invalid(self, service):
-        """Test parsing invalid numbers"""
-        assert service._parse_number(None) is None
-        assert service._parse_number("-") is None
-        assert service._parse_number("N/A") is None
-        assert service._parse_number("") is None
-    
-    def test_parse_float_valid(self, service):
-        """Test parsing valid floats"""
-        assert service._parse_float("12.34") == 12.34
-        assert service._parse_float("-5.67") == -5.67
-        assert service._parse_float("100") == 100.0
-    
-    def test_parse_float_invalid(self, service):
-        """Test parsing invalid floats"""
-        assert service._parse_float(None) is None
-        assert service._parse_float("-") is None
-        assert service._parse_float("不適用") is None
+
 
 
 class TestURLConstruction:

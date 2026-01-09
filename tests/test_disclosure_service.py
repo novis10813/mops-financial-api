@@ -5,13 +5,15 @@ import pytest
 
 from app.services.disclosure import (
     DisclosureService,
+    DisclosureServiceError,
+    get_disclosure_service,
+)
+from app.schemas.disclosure import (
     FundsLending,
     EndorsementGuarantee,
     CrossCompanyGuarantee,
     ChinaGuarantee,
     DisclosureResponse,
-    DisclosureServiceError,
-    get_disclosure_service,
 )
 
 
