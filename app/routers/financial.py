@@ -57,7 +57,7 @@ async def get_balance_sheet(
     "/{stock_id}/income-statement",
     response_model=FinancialStatement,
     summary="取得綜合損益表",
-    description="取得指定公司的綜合損益表（累計型，Q4 會自動計算單季）"
+    description="取得指定公司的綜合損益表（累計型）"
 )
 async def get_income_statement(
     stock_id: str,
@@ -125,7 +125,7 @@ async def get_cash_flow(
     "/{stock_id}/equity-statement",
     response_model=FinancialStatement,
     summary="取得權益變動表",
-    description="取得指定公司的權益變動表（累計型，Q4 會自動計算單季）"
+    description="取得指定公司的權益變動表（累計型）"
 )
 async def get_equity_statement(
     stock_id: str,

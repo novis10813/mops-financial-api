@@ -70,7 +70,6 @@ class FinancialService:
             FinancialStatement with hierarchical items
         
         Note:
-            - quarter=4 時，損益表會計算 Q4 單季 = 年報 - Q3累計
             - quarter=None 時，直接回傳年報（Q4）原始資料
             - 快取以 (stock_id, year, quarter, report_type) 為 key
         """
