@@ -21,7 +21,7 @@
 | 10 | P1: 背書保證 - Router | 🔜 |
 | 11 | P1: 背書保證 - Database | 🔜 |
 | 12 | P1: 背書保證 - Tests | 🔜 |
-| 13 | P2: 股利分派 - Full Stack | 🔜 (MOPS 端點分析中) |
+| 13 | P2: 股利分派 - Full Stack | ✅ |
 | 14 | P2: 資金貸與 - Full Stack | 🔜 |
 | 15 | P3: 衍生性商品 - Full Stack | 🔜 |
 | 16 | P3: 資本形成 - Full Stack | 🔜 |
