@@ -187,3 +187,50 @@ class MonthlyRevenue(Base):
     
     def __repr__(self):
         return f"<MonthlyRevenue {self.stock_id} {self.year}/{self.month}>"
+
+
+class SharePledging(Base):
+    """
+    董監事質押資料
+    
+    用於快取 MOPS 質押資料，便於追蹤大股東斷頭風險
+    
+    Source:
+    POST https://mopsov.twse.com.tw/mops/web/ajax_stapap1
+    """
+    __tablename__ = "share_pledging"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_id = Column(String(10), nullable=False, index=True, comment="股票代號")
+    company_name = Column(String(100), comment="公司名稱")
+    year = Column(Integer, nullable=False, comment="民國年")
+    month = Column(Integer, nullable=False, comment="月份 1-12")
+    
+    # 職位資訊
+    title = Column(String(50), comment="職稱 (董事長/獨立董事/副總經理等)")
+    relationship = Column(String(20), default="本人", comment="本人/配偶")
+    name = Column(String(100), comment="姓名")
+    
+    # 持股資訊
+    shares_at_election = Column(Numeric(20, 0), comment="選任時持股")
+    current_shares = Column(Numeric(20, 0), comment="目前持股")
+    pledged_shares = Column(Numeric(20, 0), comment="設質股數")
+    pledge_ratio = Column(Numeric(10, 2), comment="設質比例 (%)")
+    
+    # Metadata
+    fetched_at = Column(DateTime, server_default="now()", comment="抓取時間")
+    
+    __table_args__ = (
+        # 確保同一月份同一人員不會重複
+        UniqueConstraint(
+            "stock_id", "year", "month", "title", "name", 
+            name="uq_pledging_identity"
+        ),
+        # 查詢索引
+        Index("ix_pledging_lookup", "stock_id", "year", "month"),
+        Index("ix_pledging_high_ratio", "pledge_ratio"),  # 找高質押比例
+        {"comment": "董監事質押資料"}
+    )
+    
+    def __repr__(self):
+        return f"<SharePledging {self.stock_id} {self.name} {self.pledge_ratio}%>"
