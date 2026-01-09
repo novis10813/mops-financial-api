@@ -136,3 +136,54 @@ class FinancialFact(Base):
     
     def __repr__(self):
         return f"<FinancialFact {self.concept}={self.value}>"
+
+
+class MonthlyRevenue(Base):
+    """
+    月營收資料
+    
+    用於快取 MOPS 月營收資料，避免每次都爬取
+    
+    Source:
+    https://mopsov.twse.com.tw/nas/t21/{market}/t21sc03_{year}_{month}_{company_type}.html
+    """
+    __tablename__ = "monthly_revenue"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_id = Column(String(10), nullable=False, index=True, comment="股票代號")
+    company_name = Column(String(100), comment="公司名稱")
+    year = Column(Integer, nullable=False, comment="民國年")
+    month = Column(Integer, nullable=False, comment="月份 1-12")
+    market = Column(String(10), default="sii", comment="市場: sii/otc/rotc/pub")
+    
+    # 營收數據 (單位: 千元)
+    revenue = Column(Numeric(20, 0), comment="當月營收")
+    revenue_last_month = Column(Numeric(20, 0), comment="上月營收")
+    revenue_last_year = Column(Numeric(20, 0), comment="去年當月營收")
+    
+    # 增減率 (%)
+    mom_change = Column(Numeric(10, 2), comment="上月比較增減率 (%)")
+    yoy_change = Column(Numeric(10, 2), comment="去年同月增減率 (%)")
+    
+    # 累計營收
+    accumulated_revenue = Column(Numeric(20, 0), comment="當月累計營收")
+    accumulated_last_year = Column(Numeric(20, 0), comment="去年累計營收")
+    accumulated_yoy_change = Column(Numeric(10, 2), comment="前期比較增減率 (%)")
+    
+    # 備註
+    comment = Column(Text, comment="備註說明")
+    
+    # Metadata
+    fetched_at = Column(DateTime, server_default="now()", comment="抓取時間")
+    
+    __table_args__ = (
+        # 確保同一月份同一公司不會重複
+        UniqueConstraint("stock_id", "year", "month", "market", name="uq_revenue_identity"),
+        # 查詢索引
+        Index("ix_revenue_lookup", "stock_id", "year", "month"),
+        Index("ix_revenue_period", "year", "month", "market"),
+        {"comment": "月營收資料"}
+    )
+    
+    def __repr__(self):
+        return f"<MonthlyRevenue {self.stock_id} {self.year}/{self.month}>"

@@ -11,8 +11,9 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 
-from app.db.models import Company, FinancialReport, FinancialFact
+from app.db.models import Company, FinancialReport, FinancialFact, MonthlyRevenue as MonthlyRevenueModel
 from app.schemas.financial import FinancialStatement, FinancialItem
+from app.services.revenue import MonthlyRevenue as MonthlyRevenueSchema
 
 
 logger = logging.getLogger(__name__)
@@ -307,4 +308,179 @@ class FinancialRepository:
             report_type=report.report_type,
             is_standalone=report.is_standalone,
             items=items,
+        )
+
+
+class RevenueRepository:
+    """
+    月營收資料存取層
+    
+    提供月營收的 CRUD 操作和快取查詢
+    """
+    
+    def __init__(self, session: AsyncSession):
+        self.session = session
+    
+    async def save_revenues(
+        self,
+        revenues: List[MonthlyRevenueSchema],
+        market: str = "sii",
+    ) -> int:
+        """
+        批次儲存月營收資料 (upsert)
+        
+        Args:
+            revenues: 月營收資料列表
+            market: 市場類型
+            
+        Returns:
+            更新的記錄數
+        """
+        if not revenues:
+            return 0
+        
+        count = 0
+        for rev in revenues:
+            stmt = insert(MonthlyRevenueModel).values(
+                stock_id=rev.stock_id,
+                company_name=rev.company_name,
+                year=rev.year,
+                month=rev.month,
+                market=market,
+                revenue=rev.revenue,
+                revenue_last_month=rev.revenue_last_month,
+                revenue_last_year=rev.revenue_last_year,
+                mom_change=rev.mom_change,
+                yoy_change=rev.yoy_change,
+                accumulated_revenue=rev.accumulated_revenue,
+                accumulated_last_year=rev.accumulated_last_year,
+                accumulated_yoy_change=rev.accumulated_yoy_change,
+                comment=rev.comment,
+            ).on_conflict_do_update(
+                constraint="uq_revenue_identity",
+                set_={
+                    "company_name": rev.company_name,
+                    "revenue": rev.revenue,
+                    "revenue_last_month": rev.revenue_last_month,
+                    "revenue_last_year": rev.revenue_last_year,
+                    "mom_change": rev.mom_change,
+                    "yoy_change": rev.yoy_change,
+                    "accumulated_revenue": rev.accumulated_revenue,
+                    "accumulated_last_year": rev.accumulated_last_year,
+                    "accumulated_yoy_change": rev.accumulated_yoy_change,
+                    "comment": rev.comment,
+                }
+            )
+            await self.session.execute(stmt)
+            count += 1
+        
+        logger.info(f"Saved {count} revenue records for {revenues[0].year}/{revenues[0].month}")
+        return count
+    
+    async def get_revenue(
+        self,
+        stock_id: str,
+        year: int,
+        month: int,
+        market: str = "sii",
+    ) -> Optional[MonthlyRevenueSchema]:
+        """
+        取得單一公司月營收
+        """
+        stmt = select(MonthlyRevenueModel).where(
+            and_(
+                MonthlyRevenueModel.stock_id == stock_id,
+                MonthlyRevenueModel.year == year,
+                MonthlyRevenueModel.month == month,
+                MonthlyRevenueModel.market == market,
+            )
+        )
+        
+        result = await self.session.execute(stmt)
+        record = result.scalar_one_or_none()
+        
+        if not record:
+            return None
+        
+        return self._model_to_schema(record)
+    
+    async def get_market_revenues(
+        self,
+        year: int,
+        month: int,
+        market: str = "sii",
+    ) -> List[MonthlyRevenueSchema]:
+        """
+        取得全市場月營收
+        """
+        stmt = select(MonthlyRevenueModel).where(
+            and_(
+                MonthlyRevenueModel.year == year,
+                MonthlyRevenueModel.month == month,
+                MonthlyRevenueModel.market == market,
+            )
+        ).order_by(MonthlyRevenueModel.stock_id)
+        
+        result = await self.session.execute(stmt)
+        records = result.scalars().all()
+        
+        return [self._model_to_schema(r) for r in records]
+    
+    async def revenue_exists(
+        self,
+        year: int,
+        month: int,
+        market: str = "sii",
+    ) -> bool:
+        """
+        檢查特定月份的營收資料是否已存在
+        """
+        stmt = select(MonthlyRevenueModel.id).where(
+            and_(
+                MonthlyRevenueModel.year == year,
+                MonthlyRevenueModel.month == month,
+                MonthlyRevenueModel.market == market,
+            )
+        ).limit(1)
+        
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+    
+    async def count_revenues(
+        self,
+        year: int,
+        month: int,
+        market: str = "sii",
+    ) -> int:
+        """
+        計算特定月份的營收記錄數
+        """
+        from sqlalchemy import func
+        stmt = select(func.count()).where(
+            and_(
+                MonthlyRevenueModel.year == year,
+                MonthlyRevenueModel.month == month,
+                MonthlyRevenueModel.market == market,
+            )
+        )
+        
+        result = await self.session.execute(stmt)
+        return result.scalar_one() or 0
+    
+    def _model_to_schema(self, record: MonthlyRevenueModel) -> MonthlyRevenueSchema:
+        """Convert database model to Pydantic schema"""
+        return MonthlyRevenueSchema(
+            stock_id=record.stock_id,
+            company_name=record.company_name or "",
+            year=record.year,
+            month=record.month,
+            revenue=int(record.revenue) if record.revenue else None,
+            revenue_last_month=int(record.revenue_last_month) if record.revenue_last_month else None,
+            revenue_last_year=int(record.revenue_last_year) if record.revenue_last_year else None,
+            mom_change=float(record.mom_change) if record.mom_change else None,
+            yoy_change=float(record.yoy_change) if record.yoy_change else None,
+            accumulated_revenue=int(record.accumulated_revenue) if record.accumulated_revenue else None,
+            accumulated_last_year=int(record.accumulated_last_year) if record.accumulated_last_year else None,
+            accumulated_yoy_change=float(record.accumulated_yoy_change) if record.accumulated_yoy_change else None,
+            comment=record.comment,
         )

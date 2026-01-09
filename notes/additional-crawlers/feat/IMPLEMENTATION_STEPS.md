@@ -8,9 +8,9 @@
 
 | Step | 任務 | 狀態 |
 |------|------|------|
-| 0 | 基礎設施: MOPS HTML Client | ⬜ |
-| 1 | P0: 月營收 - Service | ⬜ |
-| 2 | P0: 月營收 - Router | ⬜ |
+| 0 | 基礎設施: MOPS HTML Client | ✅ |
+| 1 | P0: 月營收 - Service | ✅ |
+| 2 | P0: 月營收 - Router | ✅ |
 | 3 | P0: 月營收 - Database | ⬜ |
 | 4 | P0: 月營收 - Tests | ⬜ |
 | 5 | P1: 董監事質押 - Service | ⬜ |
