@@ -11,10 +11,10 @@
 | 0 | 基礎設施: MOPS HTML Client | ✅ |
 | 1 | P0: 月營收 - Service | ✅ |
 | 2 | P0: 月營收 - Router | ✅ |
-| 3 | P0: 月營收 - Database | ⬜ |
-| 4 | P0: 月營收 - Tests | ⬜ |
-| 5 | P1: 董監事質押 - Service | ⬜ |
-| 6 | P1: 董監事質押 - Router | ⬜ |
+| 3 | P0: 月營收 - Database | ✅ |
+| 4 | P0: 月營收 - Tests | ✅ |
+| 5 | P1: 董監事質押 - Service | ✅ |
+| 6 | P1: 董監事質押 - Router | ✅ |
 | 7 | P1: 董監事質押 - Database | ⬜ |
 | 8 | P1: 董監事質押 - Tests | ⬜ |
 | 9 | P1: 背書保證 - Service | ⬜ |
