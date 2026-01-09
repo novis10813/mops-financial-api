@@ -5,11 +5,10 @@ Provides endpoints for retrieving financial statements
 Parameter Logic:
 - year + quarter: Get specific quarter data
 - year only (no quarter): Get annual report (Q4 raw data)
-- quarter=4: For income statement, calculates Q4 standalone = Annual - Q3
 
 Example:
-- GET /2330/income-statement?year=113&quarter=4 → Q4 single quarter
-- GET /2330/income-statement?year=113 → Full year (annual report)
+- GET /2330/income-statement?year=113&quarter=4 → Q4 report
+- GET /2330/income-statement?year=113 → Annual report (same as Q4)
 """
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -71,10 +70,7 @@ async def get_income_statement(
     
     - 損益表是「累計型」報表
     - quarter=None: 取得年報原始資料（全年累計）
-    - quarter=1~3: 取得該季報表（Q2, Q3 為累計）
-    - quarter=4: **自動計算 Q4 單季** = 年報 - Q3 累計
-    
-    注意：回傳的 is_standalone=True 表示已計算為單季資料
+    - quarter=1~4: 取得該季報表（Q2, Q3, Q4 為累計）
     """
     service = get_financial_service()
     
@@ -142,10 +138,7 @@ async def get_equity_statement(
     
     - 權益變動表是「累計型」報表
     - quarter=None: 取得年報原始資料（全年累計）
-    - quarter=1~3: 取得該季報表（累計）
-    - quarter=4: **自動計算 Q4 單季** = 年報 - Q3 累計
-    
-    注意：回傳的 is_standalone=True 表示已計算為單季資料
+    - quarter=1~4: 取得該季報表（累計）
     """
     service = get_financial_service()
     

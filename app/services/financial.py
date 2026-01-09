@@ -2,17 +2,13 @@
 Financial Service
 Orchestrates MOPS download and XBRL parsing to produce structured financial statements
 
-Key Feature: Q4 Standalone Calculation
-- For income statement: Q4 standalone = Annual - Q3 accumulated
-- For balance sheet & cash flow: No calculation needed
-
 Caching Strategy:
 - Check database cache first before fetching from MOPS
 - Save fetched reports to database for future requests
 """
 import logging
 from typing import Optional, List, Dict
-from decimal import Decimal, InvalidOperation
+
 
 from app.schemas.financial import FinancialStatement, FinancialItem
 from app.schemas.xbrl import XBRLPackage, CalculationArc
@@ -44,8 +40,7 @@ class FinancialService:
         "equity_statement": "StatementOfChangesInEquity",
     }
     
-    # 需要計算 Q4 單季的報表類型（累計型報表）
-    CUMULATIVE_REPORTS = {"income_statement", "equity_statement"}
+
     
     def __init__(self):
         self.mops_client = get_mops_client()
@@ -116,14 +111,8 @@ class FinancialService:
         except XBRLParserError as e:
             raise FinancialServiceError(f"Failed to parse XBRL: {e}")
         
-        # Q4 單季計算：只有指定 quarter=4 且是累計型報表才需要
-        if quarter == 4 and report_type in self.CUMULATIVE_REPORTS:
-            statement = await self._get_q4_standalone(
-                stock_id, year, report_type, package, format
-            )
-        else:
-            # 一般情況：直接建構報表
-            statement = self._build_statement(package, report_type)
+        # 直接建構報表
+        statement = self._build_statement(package, report_type)
         
         # 3. 儲存到資料庫快取
         try:
@@ -238,58 +227,6 @@ class FinancialService:
             items=simplified_items
         )
     
-    async def _get_q4_standalone(
-        self,
-        stock_id: str,
-        year: int,
-        report_type: str,
-        q4_package: XBRLPackage,
-        format: str,
-    ) -> FinancialStatement:
-        """
-        計算 Q4 單季數據
-        
-        Q4 單季 = 年報(Q4) - Q3 累計
-        """
-        logger.info(f"Calculating Q4 standalone for {stock_id} {year}")
-        
-        # 下載 Q3 資料
-        try:
-            q3_content = await self.mops_client.download_xbrl(stock_id, year, 3)
-            q3_package = self.xbrl_parser.parse(q3_content, stock_id, year, 3)
-        except (MOPSClientError, XBRLParserError) as e:
-            logger.warning(f"Failed to get Q3 data, returning Q4 as-is: {e}")
-            return self._build_statement(q4_package, report_type)
-        
-        # 建立 Q4 和 Q3 的 fact 映射
-        q4_facts = {fact.concept: fact.value for fact in q4_package.facts}
-        q3_facts = {fact.concept: fact.value for fact in q3_package.facts}
-        
-        # 計算差值
-        q4_standalone_facts = {}
-        for concept, q4_value in q4_facts.items():
-            q3_value = q3_facts.get(concept, "0")
-            
-            # 使用統一的數值解析
-            q4_num = parse_financial_value(q4_value)
-            q3_num = parse_financial_value(q3_value)
-            
-            if q4_num is None:
-                # 非數值型資料，保留原值
-                q4_standalone_facts[concept] = q4_value
-            else:
-                # 計算 Q4 單季 = Q4 累計 - Q3 累計
-                q3_num = q3_num if q3_num is not None else Decimal(0)
-                q4_standalone_facts[concept] = str(q4_num - q3_num)
-        
-        # 用計算後的 facts 建立報表
-        statement = self._build_statement_with_facts(
-            q4_package, report_type, q4_standalone_facts
-        )
-        statement.quarter = 4
-        statement.is_standalone = True  # 標記為單季資料
-        
-        return statement
     
     def _build_statement(
         self, 
