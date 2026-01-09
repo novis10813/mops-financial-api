@@ -21,6 +21,8 @@ from app.services.mops_html_client import (
     MOPSHTMLClientError,
     MOPSDataNotFoundError,
 )
+from app.db.connection import get_session
+from app.db.repository import RevenueRepository
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ class RevenueService:
         month: int,
         market: str = "sii",
         company_type: int = 0,  # 0=國內, 1=國外
+        force_refresh: bool = False,
     ) -> List[MonthlyRevenue]:
         """
         取得全市場月營收資料
@@ -72,6 +75,7 @@ class RevenueService:
             month: 月份 (1-12)
             market: 市場類型 (sii/otc/rotc/pub)
             company_type: 公司類型 (0=國內, 1=國外)
+            force_refresh: 強制從 MOPS 重新爬取
         
         Returns:
             List of MonthlyRevenue
@@ -79,6 +83,40 @@ class RevenueService:
         if market not in self.MARKET_TYPES:
             raise RevenueServiceError(f"Invalid market: {market}")
         
+        # 1. 先檢查 DB (除非 force_refresh)
+        if not force_refresh:
+            try:
+                async with get_session() as session:
+                    repo = RevenueRepository(session)
+                    cached = await repo.get_market_revenues(year, month, market)
+                    if cached:
+                        logger.info(f"Cache hit: {year}/{month} from DB ({len(cached)} records)")
+                        return cached
+            except Exception as e:
+                logger.warning(f"DB query failed, falling back to MOPS: {e}")
+        
+        # 2. DB 沒有，從 MOPS 爬取
+        revenues = await self._fetch_from_mops(year, month, market, company_type)
+        
+        # 3. 存入 DB
+        try:
+            async with get_session() as session:
+                repo = RevenueRepository(session)
+                await repo.save_revenues(revenues, market)
+                logger.info(f"Saved {len(revenues)} revenues to DB for {year}/{month}")
+        except Exception as e:
+            logger.warning(f"Failed to save revenues to DB: {e}")
+        
+        return revenues
+    
+    async def _fetch_from_mops(
+        self,
+        year: int,
+        month: int,
+        market: str,
+        company_type: int,
+    ) -> List[MonthlyRevenue]:
+        """從 MOPS 爬取月營收資料"""
         url = self.client.REVENUE_URL_PATTERN.format(
             market=market,
             year=year,
@@ -86,7 +124,7 @@ class RevenueService:
             company_type=company_type,
         )
         
-        logger.info(f"Fetching revenue data: {year}/{month} from {market}")
+        logger.info(f"Fetching revenue data from MOPS: {year}/{month} {market}")
         
         try:
             dfs = await self.client.fetch_static_html(url, encoding="big5")
@@ -98,7 +136,7 @@ class RevenueService:
         # Parse all tables and extract revenue data
         revenues = self._parse_revenue_tables(dfs, year, month)
         
-        logger.info(f"Parsed {len(revenues)} companies from {market} {year}/{month}")
+        logger.info(f"Parsed {len(revenues)} companies from MOPS {market} {year}/{month}")
         return revenues
     
     async def get_single_revenue(
@@ -107,6 +145,7 @@ class RevenueService:
         year: int,
         month: int,
         market: str = "sii",
+        force_refresh: bool = False,
     ) -> Optional[MonthlyRevenue]:
         """
         取得單一公司月營收
@@ -116,11 +155,25 @@ class RevenueService:
             year: 民國年
             month: 月份
             market: 市場類型
+            force_refresh: 強制從 MOPS 重新爬取
         
         Returns:
             MonthlyRevenue or None if not found
         """
-        revenues = await self.get_market_revenue(year, month, market)
+        # 先查單筆 (from DB)
+        if not force_refresh:
+            try:
+                async with get_session() as session:
+                    repo = RevenueRepository(session)
+                    cached = await repo.get_revenue(stock_id, year, month, market)
+                    if cached:
+                        logger.info(f"Cache hit: {stock_id} {year}/{month}")
+                        return cached
+            except Exception as e:
+                logger.warning(f"DB query failed: {e}")
+        
+        # 沒有則載入全市場資料
+        revenues = await self.get_market_revenue(year, month, market, force_refresh=force_refresh)
         
         for rev in revenues:
             if rev.stock_id == stock_id:

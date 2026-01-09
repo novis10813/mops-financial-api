@@ -33,6 +33,7 @@ async def get_monthly_revenue(
         pattern="^(sii|otc|rotc|pub)$",
         description="市場類型: sii=上市, otc=上櫃, rotc=興櫃, pub=公開發行"
     ),
+    force_refresh: bool = Query(False, description="強制從 MOPS 重新爬取，不使用快取"),
 ):
     """
     取得月營收資料
@@ -58,7 +59,7 @@ async def get_monthly_revenue(
     try:
         if stock_id:
             # 查詢單一公司
-            result = await service.get_single_revenue(stock_id, year, month, market)
+            result = await service.get_single_revenue(stock_id, year, month, market, force_refresh=force_refresh)
             if not result:
                 raise HTTPException(
                     status_code=404,
@@ -73,7 +74,7 @@ async def get_monthly_revenue(
             )
         else:
             # 查詢全市場
-            data = await service.get_market_revenue(year, month, market)
+            data = await service.get_market_revenue(year, month, market, force_refresh=force_refresh)
             return MarketRevenueResponse(
                 year=year,
                 month=month,
@@ -101,6 +102,7 @@ async def get_stock_monthly_revenue(
         pattern="^(sii|otc|rotc|pub)$",
         description="市場類型"
     ),
+    force_refresh: bool = Query(False, description="強制從 MOPS 重新爬取"),
 ):
     """
     取得單一公司月營收
@@ -110,7 +112,7 @@ async def get_stock_monthly_revenue(
     service = get_revenue_service()
     
     try:
-        result = await service.get_single_revenue(stock_id, year, month, market)
+        result = await service.get_single_revenue(stock_id, year, month, market, force_refresh=force_refresh)
         if not result:
             raise HTTPException(
                 status_code=404,

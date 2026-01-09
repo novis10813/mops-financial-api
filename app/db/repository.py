@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import Company, FinancialReport, FinancialFact, MonthlyRevenue as MonthlyRevenueModel
 from app.schemas.financial import FinancialStatement, FinancialItem
-from app.services.revenue import MonthlyRevenue as MonthlyRevenueSchema
+from app.schemas.revenue import MonthlyRevenue as MonthlyRevenueSchema
 
 
 logger = logging.getLogger(__name__)
