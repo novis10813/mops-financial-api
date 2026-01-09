@@ -124,7 +124,7 @@ class XBRLParser:
             XBRLPackage 包含解析後的所有資料
         """
         # 解壓縮到暫存目錄
-        from app.services.mops_client import get_mops_client
+        from app.services.mops_xbrl_client import get_mops_client
         client = get_mops_client()
         files = client.extract_zip(zip_content)
         

@@ -12,7 +12,7 @@ from typing import Optional, List, Dict
 
 from app.schemas.financial import FinancialStatement, FinancialItem
 from app.schemas.xbrl import XBRLPackage, CalculationArc
-from app.services.mops_client import get_mops_client, MOPSClientError
+from app.services.mops_xbrl_client import get_mops_client, MOPSClientError
 from app.services.xbrl_parser import get_xbrl_parser, XBRLParserError
 from app.utils.numerics import parse_financial_value
 from app.db.connection import get_session

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.schemas.xbrl import XBRLPackage, XBRLDownloadResponse
-from app.services.mops_client import get_mops_client, MOPSClientError
+from app.services.mops_xbrl_client import get_mops_client, MOPSClientError
 from app.services.xbrl_parser import get_xbrl_parser, XBRLParserError
 
 router = APIRouter()

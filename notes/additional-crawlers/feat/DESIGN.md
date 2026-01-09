@@ -34,27 +34,27 @@
 
 ---
 
-## 🔑 Three Critical Design Points
+## 🔑 Two Critical Design Points
 
-### 1. 時間格式統一 (Year Transformation)
+### 1. 時間格式一致性 (Year Format Consistency)
 
-**問題**: MOPS 使用民國年 (如 112)，但量化分析系統都用西元年 (如 2023)
+**設計決策**: 保持與現有 API 一致，**統一使用民國年 (ROC Year)**
 
-**設計決策**:
-- **API 輸入/輸出**: 永遠使用**西元年**
-- **內部轉換**: Router/Service 負責 `mops_year = year - 1911`
-- **資料庫儲存**: 使用**西元年**
+- **API 輸入/輸出**: 使用**民國年** (與現有 `/financial` endpoint 一致)
+- **資料庫儲存**: 使用**民國年**
+- **MOPS URL**: 直接使用民國年，無需轉換
 
 ```python
-# API 使用者永遠不需要知道民國年
 @router.get("/monthly")
 async def get_monthly_revenue(
-    year: int = Query(..., description="西元年 (e.g., 2024)"),
+    year: int = Query(..., description="民國年 (e.g., 113)"),
     month: int = Query(..., ge=1, le=12),
 ):
-    roc_year = year - 1911  # 內部轉換
-    # ...
+    # 直接使用民國年，與現有 endpoint 保持一致
+    pass
 ```
+
+> **Note**: 未來如需支援西元年轉換，可在 API 層加入 `year_format` 參數
 
 ### 2. 資料更新觸發 (Read vs. Force Update)
 
@@ -115,7 +115,7 @@ app/routers/
 class MOPSHTMLClient:
     """
     MOPS HTML 表格爬取客戶端
-    - 與現有 MOPSClient (XBRL) 分離
+    - 與 MOPSXBRLClient (XBRL 下載) 分離
     - 處理 Big5 編碼
     - 實作 rate limiting
     """

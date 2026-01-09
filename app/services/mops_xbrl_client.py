@@ -1,6 +1,9 @@
 """
-MOPS (公開資訊觀測站) HTTP Client
-Downloads XBRL/iXBRL files from TWSE MOPS
+MOPS (公開資訊觀測站) XBRL Client
+Downloads XBRL/iXBRL financial report files from TWSE MOPS
+
+This client is specifically for XBRL format downloads.
+For HTML table crawling, use MOPSHTMLClient instead.
 
 Download endpoint:
 /server-java/FileDownLoad?functionName=t164sb01&step=9&co_id={stock_id}&year={year}&season={quarter}&report_id=C
@@ -18,19 +21,23 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-class MOPSClientError(Exception):
-    """MOPS Client Error"""
+class MOPSXBRLClientError(Exception):
+    """MOPS XBRL Client Error"""
     def __init__(self, message: str, status_code: Optional[int] = None):
         self.message = message
         self.status_code = status_code
         super().__init__(self.message)
 
 
-class MOPSClient:
+# Backward compatibility alias
+MOPSClientError = MOPSXBRLClientError
+
+
+class MOPSXBRLClient:
     """
-    MOPS 公開資訊觀測站客戶端
+    MOPS 公開資訊觀測站 XBRL 客戶端
     
-    自動下載 iXBRL 財報檔案
+    專門用於下載 iXBRL 財報檔案
     """
     
     MOPS_BASE = "https://mopsov.twse.com.tw"
@@ -95,20 +102,20 @@ class MOPSClient:
                             logger.info(f"Downloaded ZIP ({len(content):,} bytes)")
                             return content
                         
-                        raise MOPSClientError("MOPS returned invalid content")
+                        raise MOPSXBRLClientError("MOPS returned invalid content")
                     else:
-                        raise MOPSClientError(f"HTTP {resp.status_code}", resp.status_code)
+                        raise MOPSXBRLClientError(f"HTTP {resp.status_code}", resp.status_code)
                         
             except httpx.TimeoutException:
                 logger.warning(f"Timeout attempt {attempt + 1}/{self.max_retries}")
                 if attempt == self.max_retries - 1:
-                    raise MOPSClientError("Download timeout")
+                    raise MOPSXBRLClientError("Download timeout")
                 await asyncio.sleep(1 * (attempt + 1))
                 
             except httpx.HTTPError as e:
-                raise MOPSClientError(f"HTTP error: {e}")
+                raise MOPSXBRLClientError(f"HTTP error: {e}")
         
-        raise MOPSClientError(f"Failed to download XBRL for {stock_id} {year}Q{quarter}")
+        raise MOPSXBRLClientError(f"Failed to download XBRL for {stock_id} {year}Q{quarter}")
     
     def extract_zip(self, zip_content: bytes) -> dict[str, bytes]:
         """解壓縮 XBRL ZIP 檔案"""
@@ -123,12 +130,16 @@ class MOPSClient:
         return b"ix:nonFraction" in content or b"ix:nonNumeric" in content
 
 
-_mops_client: Optional[MOPSClient] = None
+_mops_xbrl_client: Optional[MOPSXBRLClient] = None
 
 
-def get_mops_client() -> MOPSClient:
-    """Get MOPS client instance"""
-    global _mops_client
-    if _mops_client is None:
-        _mops_client = MOPSClient()
-    return _mops_client
+def get_mops_xbrl_client() -> MOPSXBRLClient:
+    """Get MOPS XBRL client instance (singleton)"""
+    global _mops_xbrl_client
+    if _mops_xbrl_client is None:
+        _mops_xbrl_client = MOPSXBRLClient()
+    return _mops_xbrl_client
+
+
+# Backward compatibility alias
+get_mops_client = get_mops_xbrl_client
