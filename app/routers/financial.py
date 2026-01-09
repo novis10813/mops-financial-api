@@ -126,6 +126,43 @@ async def get_cash_flow(
 
 
 @router.get(
+    "/{stock_id}/equity-statement",
+    response_model=FinancialStatement,
+    summary="取得權益變動表",
+    description="取得指定公司的權益變動表（累計型，Q4 會自動計算單季）"
+)
+async def get_equity_statement(
+    stock_id: str,
+    year: int = Query(..., description="民國年（必填）"),
+    quarter: Optional[int] = Query(None, ge=1, le=4, description="季度 1-4，不填則取年報"),
+    format: str = Query("tree", description="輸出格式: tree 或 flat"),
+):
+    """
+    取得權益變動表 (Statement of Changes in Equity)
+    
+    - 權益變動表是「累計型」報表
+    - quarter=None: 取得年報原始資料（全年累計）
+    - quarter=1~3: 取得該季報表（累計）
+    - quarter=4: **自動計算 Q4 單季** = 年報 - Q3 累計
+    
+    注意：回傳的 is_standalone=True 表示已計算為單季資料
+    """
+    service = get_financial_service()
+    
+    try:
+        statement = await service.get_financial_statement(
+            stock_id=stock_id,
+            year=year,
+            quarter=quarter,
+            report_type="equity_statement",
+            format=format,
+        )
+        return statement
+    except FinancialServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
     "/{stock_id}/simplified/{statement_type}",
     summary="取得 FinMind 格式財報",
     description="返回 FinMind 風格的扁平化財報格式"
@@ -157,7 +194,7 @@ async def get_simplified_statement(
     返回所有財報科目，type 為 XBRL concept name
     """
     # 驗證 statement_type
-    valid_types = ["income_statement", "balance_sheet", "cash_flow"]
+    valid_types = ["income_statement", "balance_sheet", "cash_flow", "equity_statement"]
     if statement_type not in valid_types:
         raise HTTPException(
             status_code=400,

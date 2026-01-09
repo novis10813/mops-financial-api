@@ -41,10 +41,11 @@ class FinancialService:
         "balance_sheet": "StatementOfFinancialPosition",
         "income_statement": "StatementOfComprehensiveIncome",
         "cash_flow": "StatementOfCashFlows",
+        "equity_statement": "StatementOfChangesInEquity",
     }
     
-    # 需要計算 Q4 單季的報表類型
-    CUMULATIVE_REPORTS = {"income_statement"}  # 損益表是累計的
+    # 需要計算 Q4 單季的報表類型（累計型報表）
+    CUMULATIVE_REPORTS = {"income_statement", "equity_statement"}
     
     def __init__(self):
         self.mops_client = get_mops_client()
