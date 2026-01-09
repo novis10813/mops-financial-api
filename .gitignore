@@ -50,5 +50,5 @@ taxonomy/
 
 # Environment files (contain secrets)
 .env
-.env.dev
-.env.prod
+.env.*
+!.env.example
