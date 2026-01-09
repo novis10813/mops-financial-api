@@ -11,9 +11,10 @@ Note: year uses ROC year (民國年), consistent with other endpoints.
 import logging
 from typing import Optional, List
 from datetime import date
+from decimal import Decimal
 
-from pydantic import BaseModel
-
+from app.schemas.revenue import MonthlyRevenue
+from app.utils.numerics import parse_financial_value
 from app.services.mops_html_client import (
     get_mops_html_client,
     MOPSHTMLClient,
@@ -24,30 +25,7 @@ from app.services.mops_html_client import (
 logger = logging.getLogger(__name__)
 
 
-class MonthlyRevenue(BaseModel):
-    """月營收資料模型"""
-    stock_id: str               # 股票代號
-    company_name: str           # 公司名稱
-    year: int                   # 民國年
-    month: int                  # 月份
-    revenue: Optional[int] = None          # 本月營收 (千元)
-    revenue_last_month: Optional[int] = None  # 上月營收
-    revenue_last_year: Optional[int] = None   # 去年當月營收
-    mom_change: Optional[float] = None        # 上月比較增減率 (%)
-    yoy_change: Optional[float] = None        # 去年同月增減率 (%)
-    accumulated_revenue: Optional[int] = None # 當月累計營收
-    accumulated_last_year: Optional[int] = None  # 去年累計營收
-    accumulated_yoy_change: Optional[float] = None  # 前期比較增減率 (%)
-    comment: Optional[str] = None             # 備註
 
-
-class MarketRevenueResponse(BaseModel):
-    """全市場月營收回應"""
-    year: int
-    month: int
-    market: str
-    count: int
-    data: List[MonthlyRevenue]
 
 
 class RevenueServiceError(Exception):
@@ -189,6 +167,8 @@ class RevenueService:
         # The table structure varies, but typically:
         # 公司代號 | 公司名稱 | 當月營收 | 上月營收 | 去年當月營收 | 上月比較增減(%) | 去年同月增減(%) | 當月累計營收 | 去年累計營收 | 前期比較增減(%) | 備註
         
+        failure_count = 0
+        
         # Reset column names to numeric index for easier access
         df.columns = range(len(df.columns))
         
@@ -208,16 +188,27 @@ class RevenueService:
                 # Parse company name
                 company_name = str(row[1]).strip() if len(row) > 1 else ""
                 
+                # Helper to parse int/float from Decimal
+                def _p_int(val):
+                    d = parse_financial_value(val)
+                    return int(d) if d is not None else None
+
+                def _p_float(val):
+                    d = parse_financial_value(val)
+                    return float(d) if d is not None else None
+
                 # Parse numeric fields with error handling
-                revenue = self._parse_number(row[2]) if len(row) > 2 else None
-                revenue_last_month = self._parse_number(row[3]) if len(row) > 3 else None
-                revenue_last_year = self._parse_number(row[4]) if len(row) > 4 else None
-                mom_change = self._parse_float(row[5]) if len(row) > 5 else None
-                yoy_change = self._parse_float(row[6]) if len(row) > 6 else None
-                accumulated_revenue = self._parse_number(row[7]) if len(row) > 7 else None
-                accumulated_last_year = self._parse_number(row[8]) if len(row) > 8 else None
-                accumulated_yoy_change = self._parse_float(row[9]) if len(row) > 9 else None
-                comment = str(row[10]).strip() if len(row) > 10 and row[10] not in ['-', 'nan', ''] else None
+                # columns: 2=revenue, 3=last_month, 4=last_year, 5=mom, 6=yoy, 7=acc, 8=acc_last, 9=acc_yoy
+                revenue = _p_int(row[2]) if len(row) > 2 else None
+                revenue_last_month = _p_int(row[3]) if len(row) > 3 else None
+                revenue_last_year = _p_int(row[4]) if len(row) > 4 else None
+                mom_change = _p_float(row[5]) if len(row) > 5 else None
+                yoy_change = _p_float(row[6]) if len(row) > 6 else None
+                accumulated_revenue = _p_int(row[7]) if len(row) > 7 else None
+                accumulated_last_year = _p_int(row[8]) if len(row) > 8 else None
+                accumulated_yoy_change = _p_float(row[9]) if len(row) > 9 else None
+                
+                comment = str(row[10]).strip() if len(row) > 10 and str(row[10]).strip() not in ['-', 'nan', '', 'None'] else None
                 
                 revenues.append(MonthlyRevenue(
                     stock_id=stock_id,
@@ -236,46 +227,20 @@ class RevenueService:
                 ))
                 
             except Exception as e:
-                # Log but continue processing other rows
-                logger.debug(f"Failed to parse row {idx}: {e}")
+                # Log unexpected errors as warning/error instead of debug
+                failure_count += 1
+                if failure_count <= 5: # Limit log noise
+                    logger.warning(f"Error parsing revenue row {idx} for {year}/{month}: {e}")
+                elif failure_count == 6:
+                    logger.warning(f"Too many parsing errors in {year}/{month}, suppressing further logs.")
                 continue
         
+        if failure_count > 0:
+            logger.info(f"Finished parsing table with {failure_count} failed rows.")
+
         return revenues
     
-    def _parse_number(self, value) -> Optional[int]:
-        """Parse a number string, handling commas and special values"""
-        if value is None:
-            return None
-        
-        str_val = str(value).strip()
-        
-        # Handle empty or special values
-        if str_val in ['', '-', 'nan', 'N/A', '不適用']:
-            return None
-        
-        try:
-            # Remove commas and convert
-            clean_val = str_val.replace(',', '').replace(' ', '')
-            return int(float(clean_val))
-        except (ValueError, TypeError):
-            return None
-    
-    def _parse_float(self, value) -> Optional[float]:
-        """Parse a float string, handling special values"""
-        if value is None:
-            return None
-        
-        str_val = str(value).strip()
-        
-        # Handle empty or special values
-        if str_val in ['', '-', 'nan', 'N/A', '不適用']:
-            return None
-        
-        try:
-            clean_val = str_val.replace(',', '').replace(' ', '')
-            return round(float(clean_val), 2)
-        except (ValueError, TypeError):
-            return None
+
 
 
 # Singleton instance

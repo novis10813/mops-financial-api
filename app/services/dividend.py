@@ -11,8 +11,8 @@ import logging
 from typing import Optional, List
 from decimal import Decimal
 
-from pydantic import BaseModel
-
+from app.schemas.dividend import DividendRecord, DividendSummary, DividendResponse
+from app.utils.numerics import parse_financial_value
 from app.services.mops_html_client import (
     get_mops_html_client,
     MOPSHTMLClient,
@@ -23,55 +23,7 @@ from app.services.mops_html_client import (
 logger = logging.getLogger(__name__)
 
 
-class DividendRecord(BaseModel):
-    """股利分派記錄"""
-    stock_id: str                     # 股票代號
-    company_name: str                 # 公司名稱
-    year: int                         # 股利所屬年度 (民國年)
-    quarter: Optional[int] = None     # 季度 (1-4, None=年度股利)
-    period_start: Optional[str] = None  # 股利所屬期間起
-    period_end: Optional[str] = None    # 股利所屬期間迄
-    
-    # 董事會決議
-    board_resolution_date: Optional[str] = None  # 董事會決議日
-    
-    # 現金股利
-    cash_dividend: Optional[float] = None  # 每股現金股利 (元)
-    
-    # 股票股利
-    stock_dividend: Optional[float] = None  # 每股股票股利 (元)
-    
-    # 合計
-    total_dividend: Optional[float] = None  # 合計股利
-    
-    # Ex-dividend information
-    ex_dividend_date: Optional[str] = None  # 除息日
-    ex_rights_date: Optional[str] = None     # 除權日
 
-
-class DividendSummary(BaseModel):
-    """股利彙總"""
-    stock_id: str
-    company_name: str
-    year: int
-    
-    # 年度合計
-    total_cash_dividend: float = 0.0
-    total_stock_dividend: float = 0.0
-    total_dividend: float = 0.0
-    
-    # 季度明細
-    quarterly_dividends: List[DividendRecord] = []
-
-
-class DividendResponse(BaseModel):
-    """股利查詢回應"""
-    stock_id: str
-    company_name: str
-    year_start: int
-    year_end: int
-    count: int
-    records: List[DividendRecord]
 
 
 class DividendServiceError(Exception):
@@ -200,6 +152,8 @@ class DividendService:
         """解析股利分派記錄"""
         records = []
         
+        failure_count = 0
+
         for df in dfs:
             if df.shape[1] < 3 or df.shape[0] < 2:
                 continue
@@ -228,11 +182,16 @@ class DividendService:
                     period_str = str(row[1]) if len(row) > 1 else ""
                     quarter = self._extract_quarter(period_str)
                     
+                    # Helper for float parsing
+                    def _p_float(val):
+                        d = parse_financial_value(val)
+                        return float(d) if d is not None else None
+
                     # 解析現金股利
-                    cash_dividend = self._parse_float(row[6]) if len(row) > 6 else None
+                    cash_dividend = _p_float(row[6]) if len(row) > 6 else None
                     
                     # 解析股票股利
-                    stock_dividend = self._parse_float(row[7]) if len(row) > 7 else None
+                    stock_dividend = _p_float(row[7]) if len(row) > 7 else None
                     
                     # 董事會決議日
                     board_date = str(row[2]).strip() if len(row) > 2 else None
@@ -253,9 +212,13 @@ class DividendService:
                     ))
                     
                 except Exception as e:
+                    failure_count += 1
                     logger.debug(f"Failed to parse dividend row: {e}")
                     continue
         
+        if failure_count > 0:
+            logger.warning(f"Encountered {failure_count} errors while parsing dividend records for {stock_id}")
+
         return records
     
     def _extract_year(self, text: str) -> Optional[int]:
@@ -278,21 +241,7 @@ class DividendService:
             return 4
         return None
     
-    def _parse_float(self, value) -> Optional[float]:
-        """Parse float from string"""
-        if value is None:
-            return None
-        
-        str_val = str(value).strip()
-        if str_val in ['', '-', 'nan', 'NaN', '0.0', '不適用']:
-            return None
-        
-        try:
-            clean_val = str_val.replace(',', '')
-            result = float(clean_val)
-            return round(result, 4) if result != 0 else None
-        except (ValueError, TypeError):
-            return None
+
 
 
 # Singleton instance

@@ -9,8 +9,16 @@ MOPS AJAX: ajax_t05st11
 """
 import logging
 from typing import Optional, List
+from decimal import Decimal
 
-from pydantic import BaseModel
+from app.schemas.disclosure import (
+    FundsLending,
+    EndorsementGuarantee,
+    CrossCompanyGuarantee,
+    ChinaGuarantee,
+    DisclosureResponse,
+)
+from app.utils.numerics import parse_financial_value
 
 from app.services.mops_html_client import (
     get_mops_html_client,
@@ -22,56 +30,7 @@ from app.services.mops_html_client import (
 logger = logging.getLogger(__name__)
 
 
-class FundsLending(BaseModel):
-    """資金貸放資訊"""
-    entity: str                          # 本公司/各子公司
-    has_balance: bool                    # 是否有餘額
-    current_month: Optional[int] = None  # 本月餘額 (千元)
-    previous_month: Optional[int] = None # 上月餘額 (千元)
-    max_limit: Optional[int] = None      # 最高限額 (千元)
 
-
-class EndorsementGuarantee(BaseModel):
-    """背書保證資訊"""
-    entity: str                              # 本公司/各子公司
-    has_balance: bool                        # 是否有餘額
-    monthly_change: Optional[int] = None     # 本月增減金額 (千元)
-    accumulated_balance: Optional[int] = None # 累計餘額 (千元)
-    max_limit: Optional[int] = None          # 最高額度 (千元)
-
-
-class CrossCompanyGuarantee(BaseModel):
-    """本公司與子公司間背書保證"""
-    parent_to_subsidiary: Optional[int] = None  # 本公司對子公司累計餘額
-    subsidiary_to_parent: Optional[int] = None  # 子公司對本公司累計餘額
-
-
-class ChinaGuarantee(BaseModel):
-    """對大陸地區背書保證"""
-    entity: str
-    has_balance: bool
-    monthly_change: Optional[int] = None
-    accumulated_balance: Optional[int] = None
-
-
-class DisclosureResponse(BaseModel):
-    """重大資訊揭露回應"""
-    stock_id: str
-    company_name: str
-    year: int
-    month: int
-    
-    # 資金貸放
-    funds_lending: List[FundsLending] = []
-    
-    # 背書保證
-    endorsement_guarantee: List[EndorsementGuarantee] = []
-    
-    # 本公司與子公司間背書保證
-    cross_company: Optional[CrossCompanyGuarantee] = None
-    
-    # 對大陸地區背書保證
-    china_guarantee: List[ChinaGuarantee] = []
 
 
 class DisclosureServiceError(Exception):
@@ -194,7 +153,7 @@ class DisclosureService:
                         max_limit=self._parse_int(row.iloc[3]) if len(row) > 3 else None,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse funds lending row: {e}")
+                    logger.warning(f"Failed to parse funds lending row: {e}")
         
         return results
     
@@ -224,7 +183,7 @@ class DisclosureService:
                         max_limit=self._parse_int(row.iloc[3]) if len(row) > 3 else None,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse endorsement row: {e}")
+                    logger.warning(f"Failed to parse endorsement row: {e}")
         
         return results
     
@@ -278,24 +237,14 @@ class DisclosureService:
                         accumulated_balance=self._parse_int(row.iloc[2]) if len(row) > 2 else None,
                     ))
                 except Exception as e:
-                    logger.debug(f"Failed to parse china guarantee row: {e}")
+                    logger.warning(f"Failed to parse china guarantee row: {e}")
         
         return results
     
     def _parse_int(self, value) -> Optional[int]:
-        """Parse integer from string"""
-        if value is None:
-            return None
-        
-        str_val = str(value).strip()
-        if str_val in ['', '-', 'nan', 'NaN']:
-            return None
-        
-        try:
-            clean_val = str_val.replace(',', '').replace(' ', '')
-            return int(float(clean_val))
-        except (ValueError, TypeError):
-            return None
+        """Parse integer from string using centralized parser"""
+        d = parse_financial_value(value)
+        return int(d) if d is not None else None
 
 
 # Singleton instance
