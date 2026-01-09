@@ -161,7 +161,7 @@ if dfs:
    - `RevenueService` 類別
    - `get_monthly_revenue(year, month, stock_id=None)` 方法
    - `get_market_revenue(year, month, market='sii')` 方法
-   - 西元年 ↔ 民國年轉換
+   - 使用民國年（與現有 API 保持一致）
 
 2. **建立 `app/schemas/revenue.py`**
    - `MonthlyRevenue` Pydantic model
@@ -176,7 +176,9 @@ class RevenueService:
     月營收服務
     
     URL Pattern:
-    http://mops.twse.com.tw/nas/t21/{market}/t21sc03_{roc_year}_{month}_{type}.html
+    http://mops.twse.com.tw/nas/t21/{market}/t21sc03_{year}_{month}_{type}.html
+    
+    Note: year 使用民國年，與現有 API 保持一致
     """
     
     MARKET_TYPES = {
@@ -191,20 +193,19 @@ class RevenueService:
     
     async def get_market_revenue(
         self,
-        year: int,  # 西元年
+        year: int,  # 民國年
         month: int,
         market: str = "sii",
         company_type: int = 0,  # 0=國內, 1=國外
     ) -> list[MonthlyRevenue]:
-        roc_year = year - 1911
-        url = f"https://mops.twse.com.tw/nas/t21/{market}/t21sc03_{roc_year}_{month}_{company_type}.html"
+        url = f"https://mops.twse.com.tw/nas/t21/{market}/t21sc03_{year}_{month}_{company_type}.html"
         dfs = await self.client.fetch_static_html(url)
         return self._parse_market_revenue(dfs, year, month)
     
     async def get_single_revenue(
         self,
         stock_id: str,
-        year: int,
+        year: int,  # 民國年
         month: int,
     ) -> Optional[MonthlyRevenue]:
         # 從市場資料中篩選
@@ -252,7 +253,7 @@ router = APIRouter(prefix="/revenue", tags=["Operations"])
 
 @router.get("/monthly", response_model=MarketRevenueResponse)
 async def get_monthly_revenue(
-    year: int = Query(..., ge=2013, description="西元年 (e.g., 2024)"),
+    year: int = Query(..., ge=102, description="民國年 (e.g., 113)"),
     month: int = Query(..., ge=1, le=12),
     stock_id: Optional[str] = Query(None, description="股票代號，若不填則回傳全市場"),
     market: str = Query("sii", regex="^(sii|otc|rotc|pub)$"),
@@ -260,7 +261,7 @@ async def get_monthly_revenue(
     """
     取得月營收資料
     
-    - **year**: 西元年 (2013 以後，IFRS 採用後)
+    - **year**: 民國年 (102 以後，IFRS 採用後)
     - **month**: 月份 (1-12)
     - **stock_id**: 股票代號 (若不填則回傳全市場)
     - **market**: 市場類型 (sii=上市, otc=上櫃, rotc=興櫃, pub=公開發行)
@@ -377,9 +378,12 @@ class TestRevenueService:
         """測試正常 HTML 解析"""
         pass
     
-    def test_year_conversion(self):
-        """測試西元年轉民國年"""
-        assert 2024 - 1911 == 113
+    def test_url_construction(self):
+        """測試 URL 建構（使用民國年）"""
+        year = 113
+        month = 12
+        expected_url = "https://mops.twse.com.tw/nas/t21/sii/t21sc03_113_12_0.html"
+        # verify URL is constructed correctly
     
     def test_handle_missing_data(self):
         """測試欄位缺失處理"""
@@ -404,7 +408,7 @@ class TestRevenueRouter:
         pass
     
     def test_invalid_year_validation(self, client):
-        """測試年份驗證 (< 2013)"""
+        """測試年份驗證 (< 102)"""
         pass
     
     def test_invalid_month_validation(self, client):
@@ -435,17 +439,16 @@ class InsidersService:
     
     async def get_share_pledging(
         self,
-        year: int,
+        year: int,  # 民國年
         month: int,
         stock_id: Optional[str] = None,
     ) -> list[SharePledging]:
-        roc_year = year - 1911
         params = {
             "encodeURIComponent": 1,
             "step": 1,
             "firstin": 1,
             "TYPEK": "sii",
-            "year": roc_year,
+            "year": year,  # 直接使用民國年
             "month": str(month).zfill(2),
         }
         if stock_id:
@@ -463,7 +466,7 @@ router = APIRouter(prefix="/insiders", tags=["Insider & Ownership"])
 
 @router.get("/pledge")
 async def get_share_pledging(
-    year: int = Query(..., description="西元年"),
+    year: int = Query(..., description="民國年"),
     month: int = Query(..., ge=1, le=12),
     stock_id: Optional[str] = None,
 ):
